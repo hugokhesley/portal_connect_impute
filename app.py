@@ -147,8 +147,9 @@ st.markdown("""
 @st.cache_resource
 def get_gc():
     scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
-    creds_dict = json.loads(st.secrets["gcp_service_account"])
-    creds = Credentials.from_service_account_info(creds_dict, scopes=scopes)
+    # secrets no formato [gcp_service_account] já retorna dict direto
+    creds_info = dict(st.secrets["gcp_service_account"])
+    creds = Credentials.from_service_account_info(creds_info, scopes=scopes)
     return gspread.authorize(creds)
 
 
