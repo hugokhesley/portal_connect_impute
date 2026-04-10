@@ -494,9 +494,8 @@ def enviar_email_bko(id_pedido: str, dados: dict, user: dict):
 def autenticar(login: str, senha: str):
     h = hashlib.sha256(senha.encode()).hexdigest()
 
-    # Admin hardcoded como fallback (funciona mesmo sem aba criada)
-    ADMIN_HASH = hashlib.sha256("ConnectAdmin@2026".encode()).hexdigest()
-    if login == "admin" and h == ADMIN_HASH:
+    # Admin fixo — sempre funciona independente do Sheets
+    if login == "admin" and h == hashlib.sha256("ConnectAdmin@2026".encode()).hexdigest():
         return {
             "login":   "admin",
             "nome":    "Hugo Khesley",
@@ -505,25 +504,32 @@ def autenticar(login: str, senha: str):
             "email":   "hugo@connectgroup.solutions",
         }
 
-    # Busca outros usuários na planilha
+    # Demais usuários — busca na planilha
     try:
-        df = load_usuarios()
-        if df.empty:
+        gc = get_gc()
+        planilha = gc.open_by_key(SPREADSHEET_ID)
+        try:
+            aba = planilha.worksheet(ABA_USUARIOS)
+            dados = aba.get_all_records()
+            if not dados:
+                return None
+            df = pd.DataFrame(dados)
+            row = df[(df["login"] == login) & (df["ativo"] == "sim")]
+            if row.empty:
+                return None
+            r = row.iloc[0]
+            if r["senha_hash"] == h:
+                return {
+                    "login":   login,
+                    "nome":    r["nome"],
+                    "perfil":  r["perfil"],
+                    "vinculo": r.get("vinculo",""),
+                    "email":   r.get("email",""),
+                }
+        except gspread.WorksheetNotFound:
             return None
-        row = df[(df["login"] == login) & (df["ativo"] == "sim")]
-        if row.empty:
-            return None
-        r = row.iloc[0]
-        if r["senha_hash"] == h:
-            return {
-                "login":   login,
-                "nome":    r["nome"],
-                "perfil":  r["perfil"],
-                "vinculo": r.get("vinculo",""),
-                "email":   r.get("email",""),
-            }
     except Exception:
-        pass
+        return None
     return None
 
 
