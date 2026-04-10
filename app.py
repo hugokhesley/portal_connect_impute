@@ -493,21 +493,37 @@ def enviar_email_bko(id_pedido: str, dados: dict, user: dict):
 
 def autenticar(login: str, senha: str):
     h = hashlib.sha256(senha.encode()).hexdigest()
-    df = load_usuarios()
-    if df.empty:
-        return None
-    row = df[(df["login"] == login) & (df["ativo"] == "sim")]
-    if row.empty:
-        return None
-    r = row.iloc[0]
-    if r["senha_hash"] == h:
+
+    # Admin hardcoded como fallback (funciona mesmo sem aba criada)
+    ADMIN_HASH = hashlib.sha256("ConnectAdmin@2026".encode()).hexdigest()
+    if login == "admin" and h == ADMIN_HASH:
         return {
-            "login":   login,
-            "nome":    r["nome"],
-            "perfil":  r["perfil"],
-            "vinculo": r.get("vinculo",""),
-            "email":   r.get("email",""),
+            "login":   "admin",
+            "nome":    "Hugo Khesley",
+            "perfil":  "admin",
+            "vinculo": "Connect Group",
+            "email":   "hugo@connectgroup.solutions",
         }
+
+    # Busca outros usuários na planilha
+    try:
+        df = load_usuarios()
+        if df.empty:
+            return None
+        row = df[(df["login"] == login) & (df["ativo"] == "sim")]
+        if row.empty:
+            return None
+        r = row.iloc[0]
+        if r["senha_hash"] == h:
+            return {
+                "login":   login,
+                "nome":    r["nome"],
+                "perfil":  r["perfil"],
+                "vinculo": r.get("vinculo",""),
+                "email":   r.get("email",""),
+            }
+    except Exception:
+        pass
     return None
 
 
