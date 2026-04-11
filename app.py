@@ -563,46 +563,64 @@ def autenticar(login: str, senha: str):
 
 def card_pedido(row, user, mostrar_acao=False, contexto=""):
     """Renderiza card de pedido."""
-    cor = STATUS_CORES.get(row.get("status",""), "#94a3b8")
-    portados = []
+    cor      = STATUS_CORES.get(row.get("status",""), "#94a3b8")
+    id_p     = str(row.get('id','')) + contexto
+    status   = row.get('status','—')
+    empresa  = row.get('razao_social','—')
+    cnpj     = row.get('cnpj','—')
+    produto  = row.get('produto','—')
+    acessos  = row.get('qtd_acessos_novos','—')
+    data     = row.get('data_cadastro','—')
+    cad_por  = row.get('cadastrado_por','—')
+    perfil_c = row.get('perfil_cadastrador','—')
+    vinculo_c= row.get('vinculo_cadastrador','—')
+    pedido_tim = row.get('pedido_tim','')
+    bko_resp = row.get('bko_responsavel','')
+    id_show  = row.get('id','—')
+
+    # Monta linhas extras
+    extra = ""
+    if pedido_tim:
+        extra += f"TIM: {pedido_tim} · "
+    if bko_resp:
+        extra += f"BKO: {bko_resp} · "
+
+    # Acessos portados
     try:
         portados = json.loads(row.get("acessos_portados","[]"))
+        n_port = len(portados)
     except Exception:
-        pass
-    n_portados = len(portados)
-    pedido_tim_txt = f"<span style='color:#3b82f6;font-weight:600'>TIM: {row['pedido_tim']}</span> · " if row.get("pedido_tim") else ""
-    bko_txt = f"BKO: {row.get('bko_responsavel','')} · " if row.get("bko_responsavel") else ""
-    id_p = row.get('id','') + contexto  # chave única por contexto
+        n_port = 0
 
-    col_card, col_btn = (st.columns([5, 1]) if mostrar_acao else (st.container(), None))
+    html = f"""<div class="pedido-card" style="border-left-color:{cor};margin-bottom:10px">
+  <div style="display:flex;justify-content:space-between;align-items:start;flex-wrap:wrap;gap:8px">
+    <div style="flex:1;min-width:200px">
+      <div class="pedido-empresa">{empresa}</div>
+      <div class="pedido-info">CNPJ: {cnpj} · {produto} · {acessos} acessos novos</div>
+      <div class="pedido-info">{extra}📅 {data}</div>
+      <div class="pedido-info">👤 {cad_por} ({perfil_c}) · {vinculo_c}</div>
+      {"<div class='pedido-info'>📱 " + str(n_port) + " acesso(s) portado(s)</div>" if n_port > 0 else ""}
+    </div>
+    <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px">
+      <span class="status-badge" style="background:{cor}">{status}</span>
+      <span style="font-size:0.7rem;color:#94a3b8;font-weight:600">ID: {id_show}</span>
+    </div>
+  </div>
+</div>"""
 
-    with (col_card if mostrar_acao else col_card):
-        st.markdown(f"""
-        <div class="pedido-card" style="border-left-color:{cor}">
-          <div style="display:flex;justify-content:space-between;align-items:start;flex-wrap:wrap;gap:8px">
-            <div style="flex:1;min-width:200px">
-              <div class="pedido-empresa">{row.get('razao_social','—')}</div>
-              <div class="pedido-info">CNPJ: {row.get('cnpj','—')} · {row.get('produto','—')} · {row.get('qtd_acessos_novos','—')} acessos novos</div>
-              <div class="pedido-info">{pedido_tim_txt}{bko_txt}📅 {row.get('data_cadastro','—')}</div>
-              <div class="pedido-info">👤 {row.get('cadastrado_por','—')} ({row.get('perfil_cadastrador','—')}) · {row.get('vinculo_cadastrador','—')}</div>
-              {'<div class="pedido-info">📱 ' + str(n_portados) + ' acesso(s) portado(s)</div>' if n_portados > 0 else ''}
-            </div>
-            <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px">
-              <span class="status-badge" style="background:{cor}">{row.get('status','—')}</span>
-              <span style="font-size:0.7rem;color:#94a3b8;font-weight:600">ID: {row.get('id','—')}</span>
-            </div>
-          </div>
-        </div>
-        """, unsafe_allow_html=True)
-
-    if mostrar_acao and col_btn:
+    if mostrar_acao:
+        col_card, col_btn = st.columns([5, 1])
+        with col_card:
+            st.markdown(html, unsafe_allow_html=True)
         with col_btn:
-            if st.button("📄 Ver ficha", key=f"ficha_{id_p}", use_container_width=True):
+            if st.button("📄 Ficha", key=f"ficha_{id_p}", use_container_width=True):
                 st.session_state[f"ver_ficha_{id_p}"] = True
+    else:
+        st.markdown(html, unsafe_allow_html=True)
 
     # Ficha detalhada
     if st.session_state.get(f"ver_ficha_{id_p}"):
-        with st.expander(f"📄 Ficha completa — {row.get('id','')}", expanded=True):
+        with st.expander(f"📄 Ficha — {id_show}", expanded=True):
             render_ficha(row)
             if st.button("✖ Fechar", key=f"fechar_{id_p}"):
                 del st.session_state[f"ver_ficha_{id_p}"]
