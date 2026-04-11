@@ -103,6 +103,30 @@ st.markdown("""
   html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
   .stApp { background-color: #f1f5f9; color: #1e293b; }
 
+  /* Força inputs com fundo branco e texto escuro */
+  input[type="text"], input[type="password"], input[type="number"],
+  textarea, .stTextInput input, .stTextArea textarea,
+  .stNumberInput input, .stSelectbox select,
+  div[data-baseweb="input"] input,
+  div[data-baseweb="textarea"] textarea {
+    background-color: #ffffff !important;
+    color: #1e293b !important;
+    border: 1px solid #cbd5e1 !important;
+  }
+
+  /* Labels dos inputs */
+  .stTextInput label, .stTextArea label, .stNumberInput label,
+  .stSelectbox label, .stDateInput label {
+    color: #374151 !important;
+    font-weight: 500 !important;
+  }
+
+  /* Selectbox */
+  div[data-baseweb="select"] div {
+    background-color: #ffffff !important;
+    color: #1e293b !important;
+  }
+
   .header-portal {
     background: linear-gradient(135deg, #0f2027 0%, #203a43 50%, #2c5364 100%);
     border-radius: 16px; padding: 22px 32px; margin-bottom: 24px;
