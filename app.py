@@ -561,7 +561,7 @@ def autenticar(login: str, senha: str):
 #  COMPONENTES REUTILIZÁVEIS
 # ─────────────────────────────────────────────────────────────────
 
-def card_pedido(row, user, mostrar_acao=False):
+def card_pedido(row, user, mostrar_acao=False, contexto=""):
     """Renderiza card de pedido."""
     cor = STATUS_CORES.get(row.get("status",""), "#94a3b8")
     portados = []
@@ -572,6 +572,7 @@ def card_pedido(row, user, mostrar_acao=False):
     n_portados = len(portados)
     pedido_tim_txt = f"<span style='color:#3b82f6;font-weight:600'>TIM: {row['pedido_tim']}</span> · " if row.get("pedido_tim") else ""
     bko_txt = f"BKO: {row.get('bko_responsavel','')} · " if row.get("bko_responsavel") else ""
+    id_p = row.get('id','') + contexto  # chave única por contexto
 
     col_card, col_btn = (st.columns([5, 1]) if mostrar_acao else (st.container(), None))
 
@@ -596,15 +597,15 @@ def card_pedido(row, user, mostrar_acao=False):
 
     if mostrar_acao and col_btn:
         with col_btn:
-            if st.button("📄 Ver ficha", key=f"ficha_{row.get('id','')}", use_container_width=True):
-                st.session_state[f"ver_ficha_{row.get('id','')}"] = True
+            if st.button("📄 Ver ficha", key=f"ficha_{id_p}", use_container_width=True):
+                st.session_state[f"ver_ficha_{id_p}"] = True
 
     # Ficha detalhada
-    if st.session_state.get(f"ver_ficha_{row.get('id','')}"):
+    if st.session_state.get(f"ver_ficha_{id_p}"):
         with st.expander(f"📄 Ficha completa — {row.get('id','')}", expanded=True):
             render_ficha(row)
-            if st.button("✖ Fechar", key=f"fechar_{row.get('id','')}"):
-                del st.session_state[f"ver_ficha_{row.get('id','')}"]
+            if st.button("✖ Fechar", key=f"fechar_{id_p}"):
+                del st.session_state[f"ver_ficha_{id_p}"]
                 st.rerun()
 
 
@@ -958,7 +959,7 @@ def tela_fila_bko(df, user):
         cor = STATUS_CORES.get(row.get("status",""), "#94a3b8")
         col_card, col_assumir = st.columns([5, 1])
         with col_card:
-            card_pedido(row, user, mostrar_acao=True)
+            card_pedido(row, user, mostrar_acao=True, contexto=str(_))
         with col_assumir:
             st.markdown("<br>", unsafe_allow_html=True)
             if st.button(f"🙋 Assumir", key=f"assumir_{row.get('id','')}", use_container_width=True, type="primary"):
@@ -1007,7 +1008,7 @@ def tela_todos_pedidos(df, user):
 
     for _, row in df_f.iterrows():
         id_pedido = row.get("id","")
-        card_pedido(row, user, mostrar_acao=True)
+        card_pedido(row, user, mostrar_acao=True, contexto=str(_))
 
         # Painel de atualização (só BKO e Admin)
         if user["perfil"] in ["admin","bko"]:
@@ -1168,7 +1169,7 @@ def main():
         with tab_fila:
             pendentes = df_filtrado[df_filtrado["status"] == "Aguardando BKO"] if not df_filtrado.empty else pd.DataFrame()
             for _, row in (pendentes.iterrows() if not pendentes.empty else []):
-                card_pedido(row, user, mostrar_acao=True)
+                card_pedido(row, user, mostrar_acao=True, contexto=str(_))
             if pendentes.empty:
                 st.info("Nenhum pedido aguardando BKO.")
         with tab_todos:
@@ -1186,7 +1187,7 @@ def main():
                 df_m = df_filtrado if status_f == "Todos" else df_filtrado[df_filtrado["status"] == status_f]
                 df_m = df_m.sort_values("data_cadastro", ascending=False) if "data_cadastro" in df_m.columns else df_m
                 for _, row in df_m.iterrows():
-                    card_pedido(row, user, mostrar_acao=True)
+                    card_pedido(row, user, mostrar_acao=True, contexto=str(_))
         with tab_novo:
             form_novo_pedido(user)
 
