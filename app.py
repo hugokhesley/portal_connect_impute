@@ -959,7 +959,7 @@ def tela_fila_bko(df, user):
         cor = STATUS_CORES.get(row.get("status",""), "#94a3b8")
         col_card, col_assumir = st.columns([5, 1])
         with col_card:
-            card_pedido(row, user, mostrar_acao=True, contexto=str(_))
+            card_pedido(row, user, mostrar_acao=True, contexto="_fila")
         with col_assumir:
             st.markdown("<br>", unsafe_allow_html=True)
             if st.button(f"🙋 Assumir", key=f"assumir_{row.get('id','')}", use_container_width=True, type="primary"):
@@ -1008,7 +1008,7 @@ def tela_todos_pedidos(df, user):
 
     for _, row in df_f.iterrows():
         id_pedido = row.get("id","")
-        card_pedido(row, user, mostrar_acao=True, contexto=str(_))
+        card_pedido(row, user, mostrar_acao=True, contexto="_todos")
 
         # Painel de atualização (só BKO e Admin)
         if user["perfil"] in ["admin","bko"]:
@@ -1169,7 +1169,7 @@ def main():
         with tab_fila:
             pendentes = df_filtrado[df_filtrado["status"] == "Aguardando BKO"] if not df_filtrado.empty else pd.DataFrame()
             for _, row in (pendentes.iterrows() if not pendentes.empty else []):
-                card_pedido(row, user, mostrar_acao=True, contexto=str(_))
+                card_pedido(row, user, mostrar_acao=True, contexto="_lider")
             if pendentes.empty:
                 st.info("Nenhum pedido aguardando BKO.")
         with tab_todos:
@@ -1187,7 +1187,7 @@ def main():
                 df_m = df_filtrado if status_f == "Todos" else df_filtrado[df_filtrado["status"] == status_f]
                 df_m = df_m.sort_values("data_cadastro", ascending=False) if "data_cadastro" in df_m.columns else df_m
                 for _, row in df_m.iterrows():
-                    card_pedido(row, user, mostrar_acao=True, contexto=str(_))
+                    card_pedido(row, user, mostrar_acao=True, contexto="_meus")
         with tab_novo:
             form_novo_pedido(user)
 
