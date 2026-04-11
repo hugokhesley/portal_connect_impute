@@ -919,6 +919,10 @@ def filtrar_pedidos(df, user):
 
 def tela_fila_bko(df, user):
     """Fila de pedidos aguardando BKO."""
+    if df.empty or "status" not in df.columns:
+        st.markdown('<div class="section-header">⏳ FILA DE IMPUTE — 0 pedido(s) aguardando</div>', unsafe_allow_html=True)
+        st.success("✅ Fila vazia! Nenhum pedido aguardando.")
+        return
     aguardando = df[df["status"] == "Aguardando BKO"]
     st.markdown(f'<div class="section-header">⏳ FILA DE IMPUTE — {len(aguardando)} pedido(s) aguardando</div>', unsafe_allow_html=True)
 
@@ -942,6 +946,10 @@ def tela_fila_bko(df, user):
 def tela_todos_pedidos(df, user):
     """Todos os pedidos com filtros e atualização de status."""
     st.markdown('<div class="section-header">📋 TODOS OS PEDIDOS</div>', unsafe_allow_html=True)
+
+    if df.empty or "status" not in df.columns:
+        st.info("Nenhum pedido cadastrado ainda.")
+        return
 
     col_f1, col_f2, col_f3, col_f4 = st.columns(4)
     with col_f1:
