@@ -297,14 +297,7 @@ def tela_bko_vendedor(user: dict, gc):
         st.warning("Nenhum dado encontrado no BKO-VENDEDOR-REAL.")
         return
 
-    # Debug temporário — remover após confirmar funcionamento
-    with st.expander("🔍 Debug — colunas detectadas", expanded=False):
-        st.write("**Colunas BKO:**", list(df_bko.columns))
-        st.write("**Primeiras linhas:**", df_bko.head(3).to_dict())
-        if COL_SAFRA in df_bko.columns:
-            st.write("**Valores SAFRA (mês):**", df_bko[COL_SAFRA].unique().tolist()[:10])
-        else:
-            st.warning(f"Coluna SAFRA não encontrada. Colunas: {list(df_bko.columns)}")
+
 
     # Debug temporário — remove após confirmar colunas
     with st.expander("🔍 Debug colunas BKO (temporário)", expanded=False):
@@ -413,26 +406,6 @@ def tela_bko_vendedor(user: dict, gc):
         _render_pendentes(df_pendentes, vendedores_lista, mapa_lider, user, gc, is_admin)
     with tab_todos:
         df_radar = _load_radar(gc)
-        with st.expander("🔍 Debug Radar (remover depois)", expanded=True):
-            has_sheets_url = "sheets" in st.secrets and "url" in st.secrets.get("sheets", {})
-            st.write(f"sheets.url nos secrets: **{has_sheets_url}**")
-            if df_radar.empty:
-                st.warning("Radar retornou vazio")
-            else:
-                st.write(f"✅ Radar: {len(df_radar)} linhas")
-                st.write(f"Colunas: {list(df_radar.columns)}")
-                st.write("Pedidos Radar (5 primeiros):", df_radar["pedido"].head().tolist())
-                if not df_completos.empty:
-                    bko_peds = df_completos[COL_PEDIDO].head().tolist()
-                    st.write("Pedidos BKO (5 primeiros):", bko_peds)
-                    # Testa o merge
-                    def _np(v):
-                        s = str(v).strip()
-                        return s[:-2].lstrip("0") if s.endswith(".0") else s.lstrip("0") or s
-                    radar_norm = set(df_radar["pedido"].apply(_np))
-                    bko_norm = set(df_completos[COL_PEDIDO].apply(_np))
-                    matches = radar_norm & bko_norm
-                    st.write(f"Pedidos em comum: **{len(matches)}**", list(matches)[:5])
         _render_preenchidos(df_completos, vendedores_lista, mapa_lider, user, gc, is_admin, df_radar=df_radar)
 
 
