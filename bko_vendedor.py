@@ -241,9 +241,11 @@ def tela_bko_vendedor(user: dict, gc):
             for _, row in df_colab.iterrows():
                 v = str(row[vcol]).strip()
                 l = str(row[lcol]).strip()
-                if v and _norm(v) not in ("vendedor", ""):
+                # Só inclui vendedores que têm líder atribuído
+                if v and l and _norm(v) not in ("vendedor", "") and _norm(l) not in ("lider", "líder", ""):
                     mapa_lider[v] = l
 
+    # Lista ordenada — apenas vendedores com líder definido
     vendedores_lista = sorted(mapa_lider.keys())
 
     if not vendedores_lista:
