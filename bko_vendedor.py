@@ -141,12 +141,16 @@ def _load_colaboradores(_gc):
 
 @st.cache_data(ttl=120, show_spinner=False)
 def _load_radar(_gc):
-    """Carrega dados do Radar (mesma planilha do dashboard) para enriquecer a tabela de preenchidos.
-    Retorna df com: pedido, cnpj, status_dash, fila_atual, acessos, preco_oferta, mes_ativacao, phoenix
+    """Carrega dados do Radar para enriquecer a tabela de preenchidos.
+    Tenta sheets.url dos secrets primeiro; se não existir, usa SPREADSHEET_ID do portal.
     """
     try:
-        sheet_url = st.secrets["sheets"]["url"]
-        planilha  = _gc.open_by_url(sheet_url)
+        try:
+            sheet_url = st.secrets["sheets"]["url"]
+            planilha  = _gc.open_by_url(sheet_url)
+        except (KeyError, Exception):
+            # Fallback: mesma planilha do portal
+            planilha = _gc.open_by_key(SPREADSHEET_ID)
         IGNORE    = {"metas", "bko-vendedor-real", "colaboradores", "portalusuarios", "portalpedidos"}
         dfs = []
         for ws in planilha.worksheets():
@@ -421,13 +425,26 @@ def tela_bko_vendedor(user: dict, gc):
         _render_pendentes(df_pendentes, vendedores_lista, mapa_lider, user, gc, is_admin)
     with tab_todos:
         df_radar = _load_radar(gc)
-        with st.expander("🔍 Debug Radar (remover depois)", expanded=False):
+        with st.expander("🔍 Debug Radar (remover depois)", expanded=True):
+            has_sheets_url = "sheets" in st.secrets and "url" in st.secrets.get("sheets", {})
+            st.write(f"sheets.url nos secrets: **{has_sheets_url}**")
             if df_radar.empty:
-                st.warning("Radar vazio — verifique se sheets.url está nos secrets do portal")
+                st.warning("Radar retornou vazio")
             else:
-                st.write(f"Radar: {len(df_radar)} linhas, colunas: {list(df_radar.columns)}")
-                st.write("Pedidos Radar (primeiros 5):", df_radar["pedido"].head().tolist())
-                st.write("Pedidos BKO (primeiros 5):", df_completos[COL_PEDIDO].head().tolist() if not df_completos.empty else [])
+                st.write(f"✅ Radar: {len(df_radar)} linhas")
+                st.write(f"Colunas: {list(df_radar.columns)}")
+                st.write("Pedidos Radar (5 primeiros):", df_radar["pedido"].head().tolist())
+                if not df_completos.empty:
+                    bko_peds = df_completos[COL_PEDIDO].head().tolist()
+                    st.write("Pedidos BKO (5 primeiros):", bko_peds)
+                    # Testa o merge
+                    def _np(v):
+                        s = str(v).strip()
+                        return s[:-2].lstrip("0") if s.endswith(".0") else s.lstrip("0") or s
+                    radar_norm = set(df_radar["pedido"].apply(_np))
+                    bko_norm = set(df_completos[COL_PEDIDO].apply(_np))
+                    matches = radar_norm & bko_norm
+                    st.write(f"Pedidos em comum: **{len(matches)}**", list(matches)[:5])
         _render_preenchidos(df_completos, vendedores_lista, mapa_lider, user, gc, is_admin, df_radar=df_radar)
 
 
