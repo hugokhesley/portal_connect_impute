@@ -179,6 +179,19 @@ def tela_bko_vendedor(user: dict, gc):
         st.warning("Nenhum dado encontrado no BKO-VENDEDOR-REAL.")
         return
 
+    # Debug temporário — mostra colunas reais da planilha
+    with st.expander("🔍 Debug — colunas da planilha (remover depois)", expanded=False):
+        st.write("**BKO-VENDEDOR-REAL:**", list(df_bko.columns))
+        if COL_MES_ATIVACAO in df_bko.columns:
+            st.write("**Valores únicos mes_ativacao:**", df_bko[COL_MES_ATIVACAO].unique().tolist()[:10])
+        else:
+            st.warning(f"Coluna '{COL_MES_ATIVACAO}' NÃO encontrada!")
+
+    # Debug temporário — remove após confirmar colunas
+    with st.expander("🔍 Debug colunas BKO (temporário)", expanded=False):
+        st.write("Colunas BKO:", list(df_bko.columns))
+        st.write("Primeiras linhas:", df_bko.head(3).to_dict())
+
     # Mapa vendedor → lider
     mapa_lider = {}
     if not df_colab.empty:
