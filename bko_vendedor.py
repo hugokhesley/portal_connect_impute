@@ -21,221 +21,12 @@ COL_MES_ATIVACAO  = "mes_ativacao"
 COL_VENDEDOR_REAL = "vendedor_real"
 COL_LIDER         = "lider"
 
-# ─────────────────────────────────────────────────────────────────
-#  LEITURA — usa get_all_values para evitar erro de colunas duplicadas
-# ─────────────────────────────────────────────────────────────────
-
-@st.cache_data(ttl=60, show_spinner=False)
-def _load_bko_raw(_gc):
-    try:
-        planilha = _gc.open_by_key(SPREADSHEET_ID)
-        aba = planilha.worksheet(ABA_BKO)
-        valores = aba.get_all_values()
-        if not valores or len(valores) < 2:
-            return pd.DataFrame()
-        # Usa get_all_values e constrói DataFrame manualmente
-        # para evitar erro de cabeçalhos duplicados
-        header_raw = valores[0]
-        # Deduplica cabeçalhos vazios ou repetidos
-        seen = {}
-        header = []
-        for h in header_raw:
-            h_norm = str(h).strip().lower().replace(" ", "_") or "col"
-            if h_norm in seen:
-                seen[h_norm] += 1
-                h_norm = f"{h_norm}_{seen[h_norm]}"
-            else:
-                seen[h_norm] = 0
-            header.append(h_norm)
-        rows = valores[1:]
-        # Garante que todas as linhas têm o mesmo número de colunas
-        n = len(header)
-        rows = [r + [""] * (n - len(r)) if len(r) < n else r[:n] for r in rows]
-        df = pd.DataFrame(rows, columns=header)
-        # Remove linhas completamente vazias
-        df = df[df.apply(lambda r: any(v.strip() for v in r.astype(str)), axis=1)]
-        return df
-    except Exception as e:
-        st.error(f"Erro ao carregar BKO-VENDEDOR-REAL: {e}")
-        return pd.DataFrame()
-
-
-@st.cache_data(ttl=120, show_spinner=False)
-def _load_colaboradores(_gc):
-    try:
-        planilha = _gc.open_by_key(SPREADSHEET_ID)
-        aba = planilha.worksheet(ABA_COLABORADORES)
-        valores = aba.get_all_values()
-        if not valores or len(valores) < 2:
-            return pd.DataFrame()
-        header_raw = valores[0]
-        seen = {}
-        header = []
-        for h in header_raw:
-            h_norm = str(h).strip().lower().replace(" ", "_") or "col"
-            if h_norm in seen:
-                seen[h_norm] += 1
-                h_norm = f"{h_norm}_{seen[h_norm]}"
-            else:
-                seen[h_norm] = 0
-            header.append(h_norm)
-        rows = valores[1:]
-        n = len(header)
-        rows = [r + [""] * (n - len(r)) if len(r) < n else r[:n] for r in rows]
-        df = pd.DataFrame(rows, columns=header)
-        df = df[df.apply(lambda r: any(v.strip() for v in r.astype(str)), axis=1)]
-        return df
-    except Exception:
-        return pd.DataFrame()
-
-
-# ─────────────────────────────────────────────────────────────────
-#  GRAVAÇÃO
-# ─────────────────────────────────────────────────────────────────
-
-def _gravar_vendedor(gc, pedido: str, vendedor_real: str, lider: str, usuario_portal: str):
-    try:
-        planilha = gc.open_by_key(SPREADSHEET_ID)
-        aba = planilha.worksheet(ABA_BKO)
-        todos = aba.get_all_values()
-        if not todos:
-            return False, "Planilha vazia."
-
-        header_raw = todos[0]
-        header = [str(h).strip().lower().replace(" ", "_") for h in header_raw]
-
-        # Encontra índices (base 1 para gspread)
-        idx_pedido   = next((i for i, h in enumerate(header) if h == COL_PEDIDO), None)
-        idx_vendedor = next((i for i, h in enumerate(header) if h == COL_VENDEDOR_REAL), None)
-        idx_lider    = next((i for i, h in enumerate(header) if h == COL_LIDER), None)
-
-        if idx_pedido is None:
-            return False, f"Coluna '{COL_PEDIDO}' não encontrada."
-        if idx_vendedor is None:
-            return False, f"Coluna '{COL_VENDEDOR_REAL}' não encontrada."
-        if idx_lider is None:
-            return False, f"Coluna '{COL_LIDER}' não encontrada."
-
-        pedido_norm = str(pedido).strip().lstrip("0")
-
-        for i, row in enumerate(todos[1:], start=2):
-            if not row or len(row) <= idx_pedido:
-                continue
-            val = str(row[idx_pedido]).strip().lstrip("0")
-            if val == pedido_norm:
-                aba.update_cell(i, idx_vendedor + 1, vendedor_real)
-                aba.update_cell(i, idx_lider + 1, lider)
-                idx_upd = next((j for j, h in enumerate(header) if h == "atualizado_por"), None)
-                if idx_upd is not None:
-                    aba.update_cell(
-                        i, idx_upd + 1,
-                        f"{usuario_portal} · {datetime.now().strftime('%d/%m/%Y %H:%M')}"
-                    )
-                st.cache_data.clear()
-                return True, f"Pedido {pedido} atualizado com '{vendedor_real}'."
-
-        return False, f"Pedido {pedido} não encontrado."
-    except Exception as e:
-        return False, f"Erro: {e}"
-
-
-# ─────────────────────────────────────────────────────────────────
-#  CSS — tema escuro compatível com o portal
-# ─────────────────────────────────────────────────────────────────
-
-CSS = """
-<style>
-.bv-header {
-    background: linear-gradient(135deg, #0f172a, #1e3a5f);
-    border-radius: 14px;
-    padding: 20px 28px;
-    margin-bottom: 20px;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    flex-wrap: wrap;
-    gap: 12px;
-    border: 1px solid #1e40af;
-}
-.bv-header-title {
-    font-size: 1.15rem;
-    font-weight: 800;
-    color: #e2e8f0;
-}
-.bv-header-sub {
-    font-size: 0.78rem;
-    color: #94a3b8;
-    margin-top: 3px;
-}
-.bv-kpi {
-    border-radius: 10px;
-    padding: 10px 20px;
-    text-align: center;
-    min-width: 80px;
-}
-.bv-kpi-val {
-    font-size: 1.6rem;
-    font-weight: 800;
-    line-height: 1;
-}
-.bv-kpi-label {
-    font-size: 0.65rem;
-    font-weight: 700;
-    letter-spacing: 0.5px;
-    margin-top: 2px;
-}
-.bv-card {
-    background: #1e293b;
-    border: 1px solid #334155;
-    border-left-width: 4px;
-    border-radius: 10px;
-    padding: 12px 16px;
-    margin-bottom: 4px;
-}
-.bv-card-empresa {
-    font-size: 0.95rem;
-    font-weight: 700;
-    color: #f1f5f9;
-}
-.bv-card-info {
-    font-size: 0.72rem;
-    color: #94a3b8;
-    margin-top: 2px;
-}
-.bv-badge {
-    display: inline-block;
-    padding: 2px 9px;
-    border-radius: 99px;
-    font-size: 0.67rem;
-    font-weight: 700;
-}
-.bv-lider-box {
-    background: #172554;
-    border: 1px solid #1e40af;
-    border-radius: 8px;
-    padding: 7px 10px;
-    font-size: 0.75rem;
-    color: #93c5fd;
-    margin-top: 2px;
-}
-.bv-lider-empty {
-    background: #1e293b;
-    border: 1px solid #334155;
-    border-radius: 8px;
-    padding: 7px 10px;
-    font-size: 0.75rem;
-    color: #475569;
-    margin-top: 2px;
-}
-.bv-edit-box {
-    background: #1e293b;
-    border: 1px solid #334155;
-    border-radius: 10px;
-    padding: 16px 20px;
-    margin-top: 8px;
-}
-</style>
-"""
+# Cores inline — não dependem de CSS externo
+BG_CARD   = "#1e293b"
+BG_PAGE   = "#0f172a"
+TX_MAIN   = "#f1f5f9"
+TX_SUB    = "#94a3b8"
+BD_CARD   = "#334155"
 
 COR_STATUS = {
     "ENTRANTE":  "#22c55e",
@@ -248,12 +39,108 @@ COR_STATUS = {
 }
 
 
-# ─────────────────────────────────────────────────────────────────
-#  COMPONENTE PRINCIPAL
-# ─────────────────────────────────────────────────────────────────
+def _parse_sheet(valores):
+    """Converte get_all_values() em DataFrame sem erro de colunas duplicadas."""
+    if not valores or len(valores) < 2:
+        return pd.DataFrame()
+    seen = {}
+    header = []
+    for h in valores[0]:
+        k = str(h).strip().lower().replace(" ", "_") or "col"
+        if k in seen:
+            seen[k] += 1
+            k = f"{k}_{seen[k]}"
+        else:
+            seen[k] = 0
+        header.append(k)
+    n = len(header)
+    rows = [r + [""] * (n - len(r)) if len(r) < n else r[:n] for r in valores[1:]]
+    df = pd.DataFrame(rows, columns=header)
+    return df[df.apply(lambda r: any(str(v).strip() for v in r), axis=1)]
+
+
+@st.cache_data(ttl=60, show_spinner=False)
+def _load_bko_raw(_gc):
+    try:
+        aba = _gc.open_by_key(SPREADSHEET_ID).worksheet(ABA_BKO)
+        return _parse_sheet(aba.get_all_values())
+    except Exception as e:
+        st.error(f"Erro ao carregar BKO-VENDEDOR-REAL: {e}")
+        return pd.DataFrame()
+
+
+@st.cache_data(ttl=120, show_spinner=False)
+def _load_colaboradores(_gc):
+    try:
+        aba = _gc.open_by_key(SPREADSHEET_ID).worksheet(ABA_COLABORADORES)
+        return _parse_sheet(aba.get_all_values())
+    except Exception as e:
+        st.warning(f"Colaboradores: {e}")
+        return pd.DataFrame()
+
+
+def _gravar_vendedor(gc, pedido, vendedor_real, lider, usuario_portal):
+    try:
+        aba   = gc.open_by_key(SPREADSHEET_ID).worksheet(ABA_BKO)
+        todos = aba.get_all_values()
+        if not todos:
+            return False, "Planilha vazia."
+        header = [str(h).strip().lower().replace(" ", "_") for h in todos[0]]
+        idx_p = next((i for i, h in enumerate(header) if h == COL_PEDIDO), None)
+        idx_v = next((i for i, h in enumerate(header) if h == COL_VENDEDOR_REAL), None)
+        idx_l = next((i for i, h in enumerate(header) if h == COL_LIDER), None)
+        if None in (idx_p, idx_v, idx_l):
+            return False, f"Colunas não encontradas. Header: {header[:10]}"
+        pnorm = str(pedido).strip().lstrip("0")
+        for i, row in enumerate(todos[1:], start=2):
+            if not row or len(row) <= idx_p:
+                continue
+            if str(row[idx_p]).strip().lstrip("0") == pnorm:
+                aba.update_cell(i, idx_v + 1, vendedor_real)
+                aba.update_cell(i, idx_l + 1, lider)
+                idx_u = next((j for j, h in enumerate(header) if h == "atualizado_por"), None)
+                if idx_u is not None:
+                    aba.update_cell(i, idx_u + 1, f"{usuario_portal} · {datetime.now().strftime('%d/%m/%Y %H:%M')}")
+                st.cache_data.clear()
+                return True, f"Pedido {pedido} → '{vendedor_real}' salvo."
+        return False, f"Pedido {pedido} não encontrado."
+    except Exception as e:
+        return False, f"Erro: {e}"
+
+
+# ─── helpers de estilo inline ──────────────────────────────────────
+
+def _kpi(valor, label, cor_val, cor_bg, cor_borda):
+    return f"""
+    <div style="background:{cor_bg};border:1px solid {cor_borda};border-radius:10px;
+                padding:10px 20px;text-align:center;min-width:80px">
+      <div style="font-size:1.6rem;font-weight:800;color:{cor_val};line-height:1">{valor}</div>
+      <div style="font-size:0.65rem;font-weight:700;color:{cor_val};opacity:0.8;margin-top:2px">{label}</div>
+    </div>"""
+
+def _card(razao, pedido, fila, status, acessos, preco_fmt, ativ_badge, cor):
+    return f"""
+    <div style="background:{BG_CARD};border:1px solid {BD_CARD};border-left:4px solid {cor};
+                border-radius:10px;padding:12px 16px;margin-bottom:6px">
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+        <div>
+          <span style="font-size:0.95rem;font-weight:700;color:{TX_MAIN}">{razao}</span>
+          <span style="font-size:0.72rem;color:{TX_SUB};margin-left:8px">#{pedido}</span>
+        </div>
+        <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+          {ativ_badge}
+          <span style="background:{cor}22;color:{cor};border:1px solid {cor};
+                       display:inline-block;padding:2px 9px;border-radius:99px;
+                       font-size:0.67rem;font-weight:700">{status}</span>
+          <span style="font-size:0.72rem;color:{TX_SUB}">{fila} · {acessos} ac. · {preco_fmt}</span>
+        </div>
+      </div>
+    </div>"""
+
+
+# ─── componente principal ─────────────────────────────────────────
 
 def tela_bko_vendedor(user: dict, gc):
-    st.markdown(CSS, unsafe_allow_html=True)
 
     with st.spinner("Carregando pedidos..."):
         df_bko   = _load_bko_raw(gc)
@@ -265,21 +152,27 @@ def tela_bko_vendedor(user: dict, gc):
 
     # Mapa vendedor → lider
     mapa_lider = {}
-    if not df_colab.empty and "vendedor" in df_colab.columns and "lider" in df_colab.columns:
-        for _, row in df_colab.iterrows():
-            v = str(row.get("vendedor", "")).strip()
-            l = str(row.get("lider", "")).strip()
-            if v:
-                mapa_lider[v] = l
+    if not df_colab.empty:
+        vcol = next((c for c in df_colab.columns if "vendedor" in c), None)
+        lcol = next((c for c in df_colab.columns if "lider" in c or "líder" in c), None)
+        if vcol and lcol:
+            for _, row in df_colab.iterrows():
+                v = str(row[vcol]).strip()
+                l = str(row[lcol]).strip()
+                if v:
+                    mapa_lider[v] = l
+
     vendedores_lista = sorted(mapa_lider.keys())
 
-    # Identifica pendentes
-    col_vend = COL_VENDEDOR_REAL if COL_VENDEDOR_REAL in df_bko.columns else None
+    if not vendedores_lista:
+        # Debug — mostra colunas disponíveis
+        st.warning(f"⚠️ Colaboradores carregou mas sem vendedores. Colunas: `{list(df_colab.columns)}`")
 
     def _pend(val):
         s = str(val).strip()
-        return s == "" or s.upper() in ("SEM VENDEDOR", "NAN", "NONE", "")
+        return s == "" or s.upper() in ("SEM VENDEDOR", "NAN", "NONE")
 
+    col_vend = COL_VENDEDOR_REAL if COL_VENDEDOR_REAL in df_bko.columns else None
     if col_vend:
         mask_pend    = df_bko[col_vend].apply(_pend)
         df_pendentes = df_bko[mask_pend].copy()
@@ -292,27 +185,24 @@ def tela_bko_vendedor(user: dict, gc):
     n_ok    = len(df_completos)
     n_total = len(df_bko)
 
-    # Header
+    # ── Header ────────────────────────────────────────────────────
+    kpis = (
+        _kpi(n_pend, "PENDENTES", "#ef4444", "rgba(239,68,68,0.15)", "#ef4444") +
+        _kpi(n_ok,   "PREENCHIDOS", "#22c55e", "rgba(34,197,94,0.12)", "#22c55e") +
+        _kpi(n_total,"TOTAL", "#93c5fd", "rgba(59,130,246,0.12)", "#3b82f6")
+    )
     st.markdown(f"""
-    <div class="bv-header">
+    <div style="background:linear-gradient(135deg,#0f172a,#1e3a5f);border-radius:14px;
+                padding:20px 28px;margin-bottom:20px;display:flex;align-items:center;
+                justify-content:space-between;flex-wrap:wrap;gap:12px;
+                border:1px solid #1e40af">
       <div>
-        <div class="bv-header-title">🎯 Cadastro de Vendedor Real</div>
-        <div class="bv-header-sub">Identifique o vendedor responsável por cada pedido · sem acesso direto ao Sheets</div>
-      </div>
-      <div style="display:flex;gap:10px;flex-wrap:wrap">
-        <div class="bv-kpi" style="background:rgba(239,68,68,0.15);border:1px solid #ef4444">
-          <div class="bv-kpi-val" style="color:#ef4444">{n_pend}</div>
-          <div class="bv-kpi-label" style="color:#fca5a5">PENDENTES</div>
-        </div>
-        <div class="bv-kpi" style="background:rgba(34,197,94,0.12);border:1px solid #22c55e">
-          <div class="bv-kpi-val" style="color:#22c55e">{n_ok}</div>
-          <div class="bv-kpi-label" style="color:#86efac">PREENCHIDOS</div>
-        </div>
-        <div class="bv-kpi" style="background:rgba(59,130,246,0.12);border:1px solid #3b82f6">
-          <div class="bv-kpi-val" style="color:#93c5fd">{n_total}</div>
-          <div class="bv-kpi-label" style="color:#93c5fd">TOTAL</div>
+        <div style="font-size:1.15rem;font-weight:800;color:#f1f5f9">🎯 Cadastro de Vendedor Real</div>
+        <div style="font-size:0.78rem;color:#94a3b8;margin-top:3px">
+          Identifique o vendedor responsável por cada pedido · sem acesso direto ao Sheets
         </div>
       </div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap">{kpis}</div>
     </div>
     """, unsafe_allow_html=True)
 
@@ -331,26 +221,21 @@ def tela_bko_vendedor(user: dict, gc):
 
     with tab_pend:
         _render_pendentes(df_pendentes, vendedores_lista, mapa_lider, user, gc)
-
     with tab_todos:
         _render_todos(df_bko, col_vend, vendedores_lista, mapa_lider, user, gc)
 
 
-# ─────────────────────────────────────────────────────────────────
-#  RENDER — PENDENTES
-# ─────────────────────────────────────────────────────────────────
+# ─── render pendentes ─────────────────────────────────────────────
 
 def _render_pendentes(df, vendedores_lista, mapa_lider, user, gc):
     if df.empty:
         st.success("✅ Todos os pedidos já têm vendedor cadastrado!")
         return
-
     if not vendedores_lista:
-        st.warning("⚠️ Aba Colaboradores não carregou — impossível exibir o dropdown.")
+        st.warning("⚠️ Lista de vendedores vazia — verifique a aba Colaboradores.")
         return
 
-    st.caption(f"**{len(df)}** pedido(s) sem vendedor real. Selecione e clique em Salvar.")
-    st.markdown("")
+    st.caption(f"**{len(df)}** pedido(s) sem vendedor. Selecione e clique em Salvar.")
 
     col_mes = COL_MES_ATIVACAO if COL_MES_ATIVACAO in df.columns else None
     if col_mes:
@@ -376,33 +261,21 @@ def _render_pendentes(df, vendedores_lista, mapa_lider, user, gc):
             cor = COR_STATUS.get(status.upper(), "#64748b")
 
             ativ_badge = (
-                f"<span class='bv-badge' style='background:#14532d;color:#86efac'>✅ {mes_atv}</span>"
+                f"<span style='background:#14532d;color:#86efac;display:inline-block;"
+                f"padding:2px 9px;border-radius:99px;font-size:0.67rem;font-weight:700'>✅ {mes_atv}</span>"
             ) if mes_atv and mes_atv.lower() not in ("none", "") else (
-                "<span class='bv-badge' style='background:#422006;color:#fbbf24'>⏳ Tramitando</span>"
+                "<span style='background:#422006;color:#fbbf24;display:inline-block;"
+                "padding:2px 9px;border-radius:99px;font-size:0.67rem;font-weight:700'>⏳ Tramitando</span>"
             )
 
-            st.markdown(f"""
-            <div class="bv-card" style="border-left-color:{cor}">
-              <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
-                <div>
-                  <span class="bv-card-empresa">{razao}</span>
-                  <span style="font-size:0.72rem;color:#64748b;margin-left:8px">#{pedido}</span>
-                </div>
-                <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
-                  {ativ_badge}
-                  <span class="bv-badge" style="background:{cor}22;color:{cor};border:1px solid {cor}">{status}</span>
-                  <span class="bv-card-info">{fila} &nbsp;·&nbsp; {acessos} ac. &nbsp;·&nbsp; {preco_fmt}</span>
-                </div>
-              </div>
-            </div>
-            """, unsafe_allow_html=True)
+            st.markdown(_card(razao, pedido, fila, status, acessos, preco_fmt, ativ_badge, cor),
+                        unsafe_allow_html=True)
 
             col_sel, col_lider_info = st.columns([3, 1])
             with col_sel:
-                opcoes = ["— Selecione o vendedor —"] + vendedores_lista
                 sel = st.selectbox(
                     f"Vendedor — {pedido}",
-                    opcoes,
+                    ["— Selecione o vendedor —"] + vendedores_lista,
                     key=f"sel_vend_{pedido}",
                     label_visibility="collapsed",
                 )
@@ -411,10 +284,18 @@ def _render_pendentes(df, vendedores_lista, mapa_lider, user, gc):
             with col_lider_info:
                 if sel and sel != "— Selecione o vendedor —":
                     lider_auto = mapa_lider.get(sel, "—")
-                    st.markdown(f'<div class="bv-lider-box">👤 <b>{lider_auto}</b></div>', unsafe_allow_html=True)
+                    st.markdown(
+                        f"<div style='background:#172554;border:1px solid #1e40af;border-radius:8px;"
+                        f"padding:7px 10px;font-size:0.75rem;color:#93c5fd;margin-top:2px'>"
+                        f"👤 <b>{lider_auto}</b></div>",
+                        unsafe_allow_html=True
+                    )
                 else:
-                    st.markdown('<div class="bv-lider-empty">Líder: —</div>', unsafe_allow_html=True)
-
+                    st.markdown(
+                        "<div style='background:#1e293b;border:1px solid #334155;border-radius:8px;"
+                        "padding:7px 10px;font-size:0.75rem;color:#475569;margin-top:2px'>Líder: —</div>",
+                        unsafe_allow_html=True
+                    )
             st.markdown("")
 
         salvar = st.form_submit_button(
@@ -435,24 +316,22 @@ def _render_pendentes(df, vendedores_lista, mapa_lider, user, gc):
                 for i, (pedido, vendedor) in enumerate(preenchidos.items()):
                     lider = mapa_lider.get(vendedor, "")
                     ok, msg = _gravar_vendedor(gc, pedido, vendedor, lider, user["login"])
-                    resultados.append((pedido, ok, msg))
+                    resultados.append((ok, msg))
                     prog.progress((i + 1) / len(preenchidos))
 
-                ok_count = sum(1 for _, ok, _ in resultados if ok)
-                for _, ok, msg in resultados:
+                ok_count = sum(1 for ok, _ in resultados if ok)
+                for ok, msg in resultados:
                     if not ok:
                         st.error(f"❌ {msg}")
                 if nao_preenchidos:
-                    st.info(f"ℹ️ {len(nao_preenchidos)} ignorado(s): {', '.join(nao_preenchidos)}")
+                    st.info(f"ℹ️ {len(nao_preenchidos)} ignorado(s) sem seleção.")
                 if ok_count > 0:
                     st.success(f"✅ {ok_count} pedido(s) atualizados!")
                     st.cache_data.clear()
                     st.rerun()
 
 
-# ─────────────────────────────────────────────────────────────────
-#  RENDER — TODOS
-# ─────────────────────────────────────────────────────────────────
+# ─── render todos ─────────────────────────────────────────────────
 
 def _render_todos(df, col_vend, vendedores_lista, mapa_lider, user, gc):
     if df.empty:
@@ -483,10 +362,7 @@ def _render_todos(df, col_vend, vendedores_lista, mapa_lider, user, gc):
         def _pend(v):
             s = str(v).strip()
             return s == "" or s.upper() in ("SEM VENDEDOR", "NAN", "NONE")
-        if preenchi_f == "✅ Preenchidos":
-            df_f = df_f[~df_f[col_vend].apply(_pend)]
-        else:
-            df_f = df_f[df_f[col_vend].apply(_pend)]
+        df_f = df_f[~df_f[col_vend].apply(_pend)] if preenchi_f == "✅ Preenchidos" else df_f[df_f[col_vend].apply(_pend)]
 
     st.caption(f"**{len(df_f)}** pedido(s)")
 
@@ -516,7 +392,7 @@ def _render_todos(df, col_vend, vendedores_lista, mapa_lider, user, gc):
 
     # Edição rápida
     if vendedores_lista and user.get("perfil") in ["admin", "bko", "lider"]:
-        st.markdown('<div class="bv-edit-box">', unsafe_allow_html=True)
+        st.markdown("---")
         st.markdown("**✏️ Atualizar vendedor de um pedido específico:**")
         col_p, col_v, col_btn = st.columns([1, 2, 1])
         with col_p:
@@ -541,7 +417,6 @@ def _render_todos(df, col_vend, vendedores_lista, mapa_lider, user, gc):
                         st.error(f"❌ {msg}")
         if vend_edit and vend_edit != "— Selecione —":
             st.caption(f"👤 Líder automático: **{mapa_lider.get(vend_edit, '—')}**")
-        st.markdown('</div>', unsafe_allow_html=True)
 
     csv = df_f.to_csv(index=False).encode("utf-8")
     st.download_button("⬇️ Exportar CSV", csv, "bko_vendedor_real.csv", "text/csv", key="bv_export")
