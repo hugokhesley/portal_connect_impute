@@ -11,6 +11,7 @@ from datetime import datetime
 SPREADSHEET_ID    = "1HmtEFf2Akh7NLR2prxDh9S4gmioKYw419B4bkx4yBLg"
 ABA_BKO           = "BKO-VENDEDOR-REAL"
 ABA_COLABORADORES = "Colaboradores"
+ABA_RADAR         = "DadosRadar"
 
 # Nomes normalizados das colunas reais da aba BKO-VENDEDOR-REAL
 # Header real: SAFRA | pedido | RAZÃO SOCIAL | VENDEDOR REAL | LIDER | TBP
@@ -141,90 +142,77 @@ def _load_colaboradores(_gc):
 
 @st.cache_data(ttl=120, show_spinner=False)
 def _load_radar(_gc):
-    """Carrega dados do Radar para enriquecer a tabela de preenchidos.
-    Tenta sheets.url dos secrets primeiro; se não existir, usa SPREADSHEET_ID do portal.
-    """
+    """Carrega aba DadosRadar da mesma planilha do portal para enriquecer preenchidos."""
     try:
-        try:
-            sheet_url = st.secrets["sheets"]["url"]
-            planilha  = _gc.open_by_url(sheet_url)
-        except (KeyError, Exception):
-            # Fallback: mesma planilha do portal
-            planilha = _gc.open_by_key(SPREADSHEET_ID)
-        IGNORE    = {"metas", "bko-vendedor-real", "colaboradores", "portalusuarios", "portalpedidos"}
-        dfs = []
-        for ws in planilha.worksheets():
-            if ws.title.strip().lower() in IGNORE:
-                continue
-            try:
-                vals = ws.get_all_values()
-                if not vals or len(vals) < 2:
-                    continue
-                header_raw = [str(h).strip().lower() for h in vals[0]]
-                if "pedido" not in header_raw:
-                    continue
-                rows = vals[1:]
-                n = len(header_raw)
-                rows = [r + [""] * (n - len(r)) if len(r) < n else r[:n] for r in rows]
-                df = pd.DataFrame(rows, columns=header_raw)
-                dfs.append(df)
-            except Exception:
-                continue
-        if not dfs:
+        aba    = _gc.open_by_key(SPREADSHEET_ID).worksheet(ABA_RADAR)
+        valores = aba.get_all_values()
+        if not valores or len(valores) < 2:
             return pd.DataFrame()
-        all_cols = list(dict.fromkeys(c for d in dfs for c in d.columns))
-        df = pd.concat([d.reindex(columns=all_cols) for d in dfs], ignore_index=True)
 
-        # Normaliza pedido
+        # Normaliza header
+        header_raw = [str(h).strip().lower() for h in valores[0]]
+        rows = valores[1:]
+        n = len(header_raw)
+        rows = [r + [""] * (n - len(r)) if len(r) < n else r[:n] for r in rows]
+        df = pd.DataFrame(rows, columns=header_raw)
+
+        # Encontra coluna pedido
+        col_pedido = next((c for c in df.columns if c.strip() == "pedido"), None)
+        if col_pedido is None:
+            return pd.DataFrame()
+
         def _np(v):
             s = str(v).strip()
-            if s.endswith(".0"):
-                s = s[:-2]
+            if s.endswith(".0"): s = s[:-2]
             return s.lstrip("0") or s
 
-        df["pedido"] = df["pedido"].apply(_np)
-        df = df[df["pedido"] != ""].drop_duplicates("pedido")
+        df["pedido"] = df[col_pedido].apply(_np)
+        df = df[df["pedido"].str.strip() != ""].drop_duplicates("pedido")
 
-        # Mapeia colunas de interesse
-        col_map = {}
-        for c in df.columns:
-            cn = c.lower().strip()
-            if cn == "cnpj":                          col_map[c] = "cnpj"
-            elif cn in ("fila atual", "fila_atual"):  col_map[c] = "fila_atual"
-            elif cn in ("acessos",):                  col_map[c] = "acessos"
-            elif cn in ("preco oferta", "preco_oferta"): col_map[c] = "preco_oferta"
-            elif cn == "phoenix":                     col_map[c] = "phoenix"
-            elif cn in ("data ativacao", "data_ativacao"): col_map[c] = "data_ativacao"
-            elif cn in ("status", "status_dash"):     col_map[c] = "status_dash"
+        # Mapeia colunas de interesse por nome normalizado
+        MAP = {
+            "cnpj":             "cnpj",
+            "fila atual":       "fila_atual",
+            "fila_atual":       "fila_atual",
+            "acessos":          "acessos",
+            "preco oferta":     "preco_oferta",
+            "preco_oferta":     "preco_oferta",
+            "phoenix":          "phoenix",
+            "data ativacao":    "data_ativacao",
+            "data_ativacao":    "data_ativacao",
+            "status":           "status_dash",
+            "status_dash":      "status_dash",
+            "razao social":     "razao_radar",
+            "razao_social":     "razao_radar",
+        }
+        rename = {c: MAP[c.strip()] for c in df.columns if c.strip() in MAP}
+        df = df.rename(columns=rename)
 
-        df = df.rename(columns=col_map)
-
-        # Calcula mes_ativacao se tiver data_ativacao
-        if "data_ativacao" in df.columns and "mes_ativacao" not in df.columns:
-            def _parse_mes(v):
+        # Calcula mes_ativacao
+        if "data_ativacao" in df.columns:
+            def _mes(v):
                 s = str(v).strip()
-                for fmt in ("%d/%m/%Y", "%Y-%m-%d", "%m/%Y"):
+                for fmt in ("%d/%m/%Y", "%Y-%m-%d"):
                     try:
                         return pd.to_datetime(s, format=fmt).strftime("%m/%Y")
                     except Exception:
                         pass
                 return ""
-            df["mes_ativacao"] = df["data_ativacao"].apply(_parse_mes)
+            df["mes_ativacao"] = df["data_ativacao"].apply(_mes)
 
-        # Status dash se não tiver
-        STATUS_MAP = {
-            "PRE-VENDA": "PRE-VENDA", "EM ANALISE": "EM ANALISE",
-            "CREDITO": "CREDITO", "DEVOLVIDOS": "DEVOLVIDOS",
-            "ENTRANTE": "ENTRANTE", "CONCLUÍDO": "CONCLUÍDO", "CONCLUIDO": "CONCLUÍDO",
-            "REANÁLISE REPROVADA": "DEVOLVIDOS", "REANÁLISE": "EM ANALISE",
-        }
-        if "fila_atual" in df.columns and "status_dash" not in df.columns:
-            df["status_dash"] = df["fila_atual"].apply(
-                lambda x: STATUS_MAP.get(str(x).strip().upper(), str(x).strip())
-            )
+        # Normaliza acessos e preco
+        for c in ["acessos", "preco_oferta"]:
+            if c in df.columns:
+                df[c] = pd.to_numeric(
+                    df[c].astype(str).str.replace(r"[R$\s,]", "", regex=True).str.replace(",", "."),
+                    errors="coerce"
+                )
 
-        keep = ["pedido"] + [c for c in ["cnpj","fila_atual","status_dash","acessos",
-                                          "preco_oferta","mes_ativacao","phoenix"] if c in df.columns]
+        keep = ["pedido"] + [c for c in [
+            "cnpj", "fila_atual", "status_dash", "acessos",
+            "preco_oferta", "mes_ativacao", "phoenix"
+        ] if c in df.columns]
+
         return df[keep].copy()
     except Exception as e:
         return pd.DataFrame()
