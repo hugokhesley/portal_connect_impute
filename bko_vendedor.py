@@ -420,7 +420,15 @@ def tela_bko_vendedor(user: dict, gc):
     with tab_pend:
         _render_pendentes(df_pendentes, vendedores_lista, mapa_lider, user, gc, is_admin)
     with tab_todos:
-        _render_preenchidos(df_completos, vendedores_lista, mapa_lider, user, gc, is_admin, df_radar=_load_radar(gc))
+        df_radar = _load_radar(gc)
+        with st.expander("🔍 Debug Radar (remover depois)", expanded=False):
+            if df_radar.empty:
+                st.warning("Radar vazio — verifique se sheets.url está nos secrets do portal")
+            else:
+                st.write(f"Radar: {len(df_radar)} linhas, colunas: {list(df_radar.columns)}")
+                st.write("Pedidos Radar (primeiros 5):", df_radar["pedido"].head().tolist())
+                st.write("Pedidos BKO (primeiros 5):", df_completos[COL_PEDIDO].head().tolist() if not df_completos.empty else [])
+        _render_preenchidos(df_completos, vendedores_lista, mapa_lider, user, gc, is_admin, df_radar=df_radar)
 
 
 # ─── PENDENTES ────────────────────────────────────────────────────
