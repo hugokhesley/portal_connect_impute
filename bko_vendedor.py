@@ -39,6 +39,21 @@ COR_STATUS = {
 
 MES_ATUAL = datetime.now().strftime("%m/%Y")
 
+CSS_DARK = """
+<style>
+/* Força fundo escuro nos selectboxes e inputs desta tela */
+div[data-testid="stForm"] div[data-baseweb="select"] > div,
+div[data-testid="stForm"] div[data-baseweb="select"] div[class*="ValueContainer"],
+div[data-testid="stForm"] div[data-baseweb="select"] span {
+    background-color: #1e293b !important;
+    color: #f1f5f9 !important;
+}
+div[data-testid="stForm"] div[data-baseweb="select"] svg {
+    fill: #94a3b8 !important;
+}
+</style>
+"""
+
 
 def _norm(s):
     return ''.join(c for c in unicodedata.normalize('NFD', str(s).lower())
@@ -168,21 +183,21 @@ def _card(razao, pedido, fila, status, acessos, preco_fmt, ativ_badge, cor, vend
     lock_badge = ""
     if bloqueado:
         lock_badge = "<span style='background:#1e3a5f;color:#93c5fd;display:inline-block;padding:2px 8px;border-radius:99px;font-size:0.65rem;font-weight:700'>🔒 Preenchido</span>"
+    razao_display = razao if razao and razao != "—" else "Sem razão social"
     return (
-        f'<div style="background:#1e293b;border:1px solid #334155;border-left:4px solid {cor};'
-        f'border-radius:10px;padding:12px 16px;margin-bottom:4px">'
-        f'<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">'
-        f'<div>'
-        f'<span style="font-size:0.95rem;font-weight:700;color:#f1f5f9">{razao}</span>'
-        f'<span style="font-size:0.72rem;color:#64748b;margin-left:8px">#{pedido}</span>'
+        f'<div style="background:#0f172a;border:1px solid #1e3a5f;border-left:5px solid {cor};'
+        f'border-radius:10px;padding:12px 18px;margin-bottom:4px">'
+        f'<div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:8px">'
+        f'<div style="flex:1;min-width:200px">'
+        f'<div style="font-size:1rem;font-weight:700;color:#f8fafc;line-height:1.3">{razao_display}</div>'
+        f'<div style="font-size:0.78rem;color:#93c5fd;margin-top:2px;font-weight:600">Pedido #{pedido}</div>'
         f'</div>'
         f'<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">'
         f'{ativ_badge} {lock_badge}'
         f'<span style="background:{cor}33;color:{cor};border:1px solid {cor};'
         f'display:inline-block;padding:2px 9px;border-radius:99px;font-size:0.67rem;font-weight:700">{status}</span>'
-        f'<span style="font-size:0.72rem;color:#64748b">{fila} · {acessos} ac. · {preco_fmt}</span>'
         f'</div></div>'
-        + (f'<div style="font-size:0.72rem;color:#22c55e;margin-top:4px">✅ Vendedor: <b>{vendedor_atual}</b></div>' if vendedor_atual else '')
+        + (f'<div style="font-size:0.75rem;color:#22c55e;margin-top:6px;font-weight:600">✅ Vendedor cadastrado: <b>{vendedor_atual}</b></div>' if vendedor_atual else '')
         + '</div>'
     )
 
@@ -192,6 +207,8 @@ def _card(razao, pedido, fila, status, acessos, preco_fmt, ativ_badge, cor, vend
 def tela_bko_vendedor(user: dict, gc):
     perfil = user.get("perfil", "")
     is_admin = perfil == "admin"
+
+    st.markdown(CSS_DARK, unsafe_allow_html=True)
 
     with st.spinner("Carregando pedidos..."):
         df_bko   = _load_bko_raw(gc)
