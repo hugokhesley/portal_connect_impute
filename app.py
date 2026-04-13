@@ -937,7 +937,6 @@ def form_novo_pedido(user):
 def form_etapa2_linhas(user):
     """Etapa 2 — Composição de linhas do pedido."""
     from etapa2_linhas import form_linhas, resumo_linhas_html, linhas_para_texto
-from bko_vendedor import tela_bko_vendedor
 
     e1 = st.session_state.get("form_etapa1", {})
 
