@@ -24,6 +24,7 @@ from datetime import datetime
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from google.oauth2.service_account import Credentials
+from bko_vendedor import tela_bko_vendedor
 
 st.set_page_config(
     page_title="Connect Group | Portal de Impute",
@@ -1339,11 +1340,12 @@ def main():
 
     # Tabs por perfil
     if user["perfil"] in ["admin","bko"]:
-        tab_fila, tab_todos, tab_novo, tab_usuarios = st.tabs([
+        tab_fila, tab_todos, tab_novo, tab_vendedor, tab_usuarios = st.tabs([
             f"⏳ Fila BKO ({aguardando})",
             "📋 Todos os Pedidos",
             "➕ Novo Pedido",
-            "👥 Usuários" if user["perfil"] == "admin" else "—"
+            "🎯 Vendedor Real",
+            "👥 Usuários" if user["perfil"] == "admin" else "—",
         ])
         with tab_fila:
             tela_fila_bko(df_todos, user)
@@ -1355,15 +1357,18 @@ def main():
                 form_etapa2_linhas(user)
             else:
                 form_novo_pedido(user)
+        with tab_vendedor:
+            tela_bko_vendedor(user, get_gc())
         with tab_usuarios:
             if user["perfil"] == "admin":
                 tela_usuarios(user)
 
     elif user["perfil"] == "lider":
-        tab_fila, tab_todos, tab_novo = st.tabs([
+        tab_fila, tab_todos, tab_novo, tab_vendedor = st.tabs([
             f"⏳ Aguardando ({aguardando})",
             "📋 Pedidos da Equipe",
-            "➕ Novo Pedido"
+            "➕ Novo Pedido",
+            "🎯 Vendedor Real",
         ])
         with tab_fila:
             pendentes = df_filtrado[df_filtrado["status"] == "Aguardando BKO"] if not df_filtrado.empty else pd.DataFrame()
@@ -1379,6 +1384,8 @@ def main():
                 form_etapa2_linhas(user)
             else:
                 form_novo_pedido(user)
+        with tab_vendedor:
+            tela_bko_vendedor(user, get_gc())
 
     else:  # parceiro / vendedor
         tab_meus, tab_novo = st.tabs(["📋 Meus Pedidos", "➕ Novo Pedido"])
