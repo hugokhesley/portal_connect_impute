@@ -12,15 +12,20 @@ SPREADSHEET_ID    = "1HmtEFf2Akh7NLR2prxDh9S4gmioKYw419B4bkx4yBLg"
 ABA_BKO           = "BKO-VENDEDOR-REAL"
 ABA_COLABORADORES = "Colaboradores"
 
-COL_PEDIDO        = "pedido"
-COL_RAZAO_SOCIAL  = "razao_social"
+# Nomes normalizados das colunas reais da aba BKO-VENDEDOR-REAL
+# Header real: SAFRA | pedido | RAZÃO SOCIAL | VENDEDOR REAL | LIDER | TBP
+COL_SAFRA         = "safra"           # col   → SAFRA (mês de referência)
+COL_PEDIDO        = "pedido"          # col_1 → pedido
+COL_RAZAO_SOCIAL  = "razão_social"    # col_2 → RAZÃO SOCIAL
+COL_VENDEDOR_REAL = "vendedor_real"   # col_3 → VENDEDOR REAL
+COL_LIDER         = "lider"           # não_preencher → LIDER
+COL_TBP           = "tbp"             # col_4 → TBP
+# Colunas que não existem na BKO-VENDEDOR-REAL (usadas só internamente)
 COL_FILA_ATUAL    = "fila_atual"
 COL_STATUS        = "status_dash"
 COL_ACESSOS       = "acessos"
 COL_PRECO         = "preco_oferta"
-COL_MES_ATIVACAO  = "mes_ativacao"
-COL_VENDEDOR_REAL = "vendedor_real"
-COL_LIDER         = "lider"
+COL_MES_ATIVACAO  = "safra"           # aponta para SAFRA
 
 COR_STATUS = {
     "ENTRANTE":  "#22c55e",
@@ -45,33 +50,50 @@ def _pend(val):
     return s == "" or s.upper() in ("SEM VENDEDOR", "NAN", "NONE")
 
 
+def _normaliza_col(s):
+    """Normaliza nome de coluna: minúsculo, sem acento, espaço→underline."""
+    import unicodedata as _ud
+    s = str(s).strip().lower().replace(" ", "_")
+    return ''.join(c for c in _ud.normalize('NFD', s) if _ud.category(c) != 'Mn')
+
+
 def _parse_sheet(valores):
+    """Constrói DataFrame a partir de get_all_values().
+    Detecta o header real procurando a linha que contém palavras-chave
+    conhecidas (pedido, safra, vendedor, etc.), não apenas a primeira linha.
+    """
     if not valores:
         return pd.DataFrame()
-    # Pula linhas vazias iniciais
+
+    KEYWORDS = {"pedido", "safra", "vendedor", "razao", "razão", "lider", "líder"}
+
     header_idx = 0
     for i, row in enumerate(valores):
-        if any(str(c).strip() for c in row):
+        row_norm = {_normaliza_col(c) for c in row if str(c).strip()}
+        if row_norm & KEYWORDS:
             header_idx = i
             break
+
     if header_idx >= len(valores) - 1:
         return pd.DataFrame()
+
     header_raw = valores[header_idx]
     rows_raw   = valores[header_idx + 1:]
+
     seen = {}
     header = []
     for h in header_raw:
-        k = str(h).strip().lower().replace(" ", "_") or "col"
+        k = _normaliza_col(h) or "col"
         if k in seen:
             seen[k] += 1
             k = f"{k}_{seen[k]}"
         else:
             seen[k] = 0
         header.append(k)
+
     n = len(header)
     rows = [r + [""] * (n - len(r)) if len(r) < n else r[:n] for r in rows_raw]
     df = pd.DataFrame(rows, columns=header)
-    # Remove linhas onde TODAS as colunas são vazias
     return df[df.apply(lambda r: any(str(v).strip() for v in r), axis=1)].reset_index(drop=True)
 
 
@@ -179,13 +201,14 @@ def tela_bko_vendedor(user: dict, gc):
         st.warning("Nenhum dado encontrado no BKO-VENDEDOR-REAL.")
         return
 
-    # Debug temporário — mostra colunas reais da planilha
-    with st.expander("🔍 Debug — colunas da planilha (remover depois)", expanded=False):
-        st.write("**BKO-VENDEDOR-REAL:**", list(df_bko.columns))
-        if COL_MES_ATIVACAO in df_bko.columns:
-            st.write("**Valores únicos mes_ativacao:**", df_bko[COL_MES_ATIVACAO].unique().tolist()[:10])
+    # Debug temporário — remover após confirmar funcionamento
+    with st.expander("🔍 Debug — colunas detectadas", expanded=False):
+        st.write("**Colunas BKO:**", list(df_bko.columns))
+        st.write("**Primeiras linhas:**", df_bko.head(3).to_dict())
+        if COL_SAFRA in df_bko.columns:
+            st.write("**Valores SAFRA (mês):**", df_bko[COL_SAFRA].unique().tolist()[:10])
         else:
-            st.warning(f"Coluna '{COL_MES_ATIVACAO}' NÃO encontrada!")
+            st.warning(f"Coluna SAFRA não encontrada. Colunas: {list(df_bko.columns)}")
 
     # Debug temporário — remove após confirmar colunas
     with st.expander("🔍 Debug colunas BKO (temporário)", expanded=False):
@@ -211,8 +234,9 @@ def tela_bko_vendedor(user: dict, gc):
 
     # ── Filtro de mês ─────────────────────────────────────────────
     meses_disponiveis = []
-    if COL_MES_ATIVACAO in df_bko.columns:
-        meses_raw = df_bko[COL_MES_ATIVACAO].astype(str).str.strip()
+    col_safra = COL_SAFRA if COL_SAFRA in df_bko.columns else None
+    if col_safra:
+        meses_raw = df_bko[col_safra].astype(str).str.strip()
         meses_validos = sorted(
             {m for m in meses_raw if m and m.lower() not in ("none", "nan", "")},
             reverse=True
@@ -236,17 +260,18 @@ def tela_bko_vendedor(user: dict, gc):
             st.rerun()
 
     # Aplica filtro de mês — pedidos sem mês (tramitando) sempre aparecem
-    if mes_sel != "Todos os meses" and COL_MES_ATIVACAO in df_bko.columns:
-        mask_mes = (
-            (df_bko[COL_MES_ATIVACAO].astype(str).str.strip() == mes_sel) |
-            (df_bko[COL_MES_ATIVACAO].astype(str).str.strip().isin(["", "None", "nan"]))
-        )
+    if mes_sel != "Todos os meses" and col_safra:
+        mask_mes = (df_bko[col_safra].astype(str).str.strip() == mes_sel)
         df_filtrado = df_bko[mask_mes].copy()
     else:
         df_filtrado = df_bko.copy()
 
     # Separa pendentes e preenchidos
+    # COL_VENDEDOR_REAL normalizado = "vendedor_real" de "VENDEDOR REAL"
     col_vend = COL_VENDEDOR_REAL if COL_VENDEDOR_REAL in df_filtrado.columns else None
+    if col_vend is None:
+        # Tenta encontrar por nome parcial
+        col_vend = next((c for c in df_filtrado.columns if "vendedor" in c), None)
     if col_vend:
         mask_pend    = df_filtrado[col_vend].apply(_pend)
         df_pendentes = df_filtrado[mask_pend].copy()
@@ -272,7 +297,7 @@ def tela_bko_vendedor(user: dict, gc):
         f'<div>'
         f'<div style="font-size:1.15rem;font-weight:800;color:#f1f5f9">🎯 Cadastro de Vendedor Real</div>'
         f'<div style="font-size:0.78rem;color:#94a3b8;margin-top:3px">'
-        f'Mês: <b style="color:#93c5fd">{mes_sel}</b> · sem acesso direto ao Sheets'
+        f'Safra: <b style="color:#93c5fd">{mes_sel}</b> · sem acesso direto ao Sheets'
         f'</div></div>'
         f'<div style="display:flex;gap:10px;flex-wrap:wrap">{kpis}</div>'
         f'</div>',
