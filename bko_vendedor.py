@@ -263,7 +263,7 @@ def _render_pendentes(df, vendedores_lista, mapa_lider, user, gc):
     with st.form("form_bko_vendedor_pendentes"):
         selecoes = {}
 
-        for _, row in df.iterrows():
+        for idx, row in df.iterrows():
             pedido  = str(row.get(COL_PEDIDO, "")).strip()
             razao   = str(row.get(COL_RAZAO_SOCIAL, "—")).strip()
             fila    = str(row.get(COL_FILA_ATUAL, "—")).strip()
@@ -295,10 +295,10 @@ def _render_pendentes(df, vendedores_lista, mapa_lider, user, gc):
                 sel = st.selectbox(
                     f"Vendedor — {pedido}",
                     ["— Selecione o vendedor —"] + vendedores_lista,
-                    key=f"sel_vend_{pedido}",
+                    key=f"sel_vend_{idx}_{pedido}",
                     label_visibility="collapsed",
                 )
-                selecoes[pedido] = sel
+                selecoes[f"{idx}_{pedido}"] = (pedido, sel)
 
             with col_lider_info:
                 if sel and sel != "— Selecione o vendedor —":
@@ -324,15 +324,15 @@ def _render_pendentes(df, vendedores_lista, mapa_lider, user, gc):
         )
 
         if salvar:
-            preenchidos     = {p: v for p, v in selecoes.items() if v != "— Selecione o vendedor —"}
-            nao_preenchidos = [p for p, v in selecoes.items() if v == "— Selecione o vendedor —"]
+            preenchidos     = {k: (p, v) for k, (p, v) in selecoes.items() if v != "— Selecione o vendedor —"}
+            nao_preenchidos = [p for k, (p, v) in selecoes.items() if v == "— Selecione o vendedor —"]
 
             if not preenchidos:
                 st.error("Selecione pelo menos um vendedor antes de salvar.")
             else:
                 prog = st.progress(0)
                 resultados = []
-                for i, (pedido, vendedor) in enumerate(preenchidos.items()):
+                for i, (chave, (pedido, vendedor)) in enumerate(preenchidos.items()):
                     lider = mapa_lider.get(vendedor, "")
                     ok, msg = _gravar_vendedor(gc, pedido, vendedor, lider, user["login"])
                     resultados.append((ok, msg))
