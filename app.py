@@ -24,7 +24,6 @@ from datetime import datetime
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from google.oauth2.service_account import Credentials
-from bko_vendedor import tela_bko_vendedor
 
 st.set_page_config(
     page_title="Connect Group | Portal de Impute",
@@ -159,8 +158,29 @@ st.markdown("""
   .aviso-doc { background: #fefce8; border: 1px solid #fde047; border-radius: 10px; padding: 14px 18px; margin: 16px 0; font-size: 0.82rem; color: #713f12; }
 
   section[data-testid="stSidebar"] { background: #0f172a !important; }
-  .stTabs [data-baseweb="tab-list"] { gap: 4px; }
-  .stTabs [data-baseweb="tab"] { border-radius: 8px 8px 0 0; }
+  .stTabs [data-baseweb="tab-list"] { gap: 4px; background: transparent; }
+  .stTabs [data-baseweb="tab"] {
+    border-radius: 8px 8px 0 0;
+    color: #64748b !important;
+    font-weight: 600 !important;
+    font-size: 0.82rem !important;
+    padding: 8px 16px !important;
+    background: #e2e8f0 !important;
+    border: 1px solid #cbd5e1 !important;
+    border-bottom: none !important;
+  }
+  .stTabs [data-baseweb="tab"]:hover {
+    color: #1e293b !important;
+    background: #cbd5e1 !important;
+  }
+  .stTabs [aria-selected="true"] {
+    color: #1e293b !important;
+    background: #ffffff !important;
+    border-color: #94a3b8 !important;
+    font-weight: 700 !important;
+  }
+  .stTabs [data-baseweb="tab-highlight"] { background: transparent !important; }
+  .stTabs [data-baseweb="tab-border"] { background: #cbd5e1 !important; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -1319,12 +1339,11 @@ def main():
 
     # Tabs por perfil
     if user["perfil"] in ["admin","bko"]:
-        tab_fila, tab_todos, tab_novo, tab_vendedor, tab_usuarios = st.tabs([
+        tab_fila, tab_todos, tab_novo, tab_usuarios = st.tabs([
             f"⏳ Fila BKO ({aguardando})",
             "📋 Todos os Pedidos",
             "➕ Novo Pedido",
-            "🎯 Vendedor Real",
-            "👥 Usuários" if user["perfil"] == "admin" else "—",
+            "👥 Usuários" if user["perfil"] == "admin" else "—"
         ])
         with tab_fila:
             tela_fila_bko(df_todos, user)
@@ -1336,18 +1355,15 @@ def main():
                 form_etapa2_linhas(user)
             else:
                 form_novo_pedido(user)
-        with tab_vendedor:
-            tela_bko_vendedor(user, get_gc())
         with tab_usuarios:
             if user["perfil"] == "admin":
                 tela_usuarios(user)
 
     elif user["perfil"] == "lider":
-        tab_fila, tab_todos, tab_novo, tab_vendedor = st.tabs([
+        tab_fila, tab_todos, tab_novo = st.tabs([
             f"⏳ Aguardando ({aguardando})",
             "📋 Pedidos da Equipe",
-            "➕ Novo Pedido",
-            "🎯 Vendedor Real",
+            "➕ Novo Pedido"
         ])
         with tab_fila:
             pendentes = df_filtrado[df_filtrado["status"] == "Aguardando BKO"] if not df_filtrado.empty else pd.DataFrame()
@@ -1363,8 +1379,6 @@ def main():
                 form_etapa2_linhas(user)
             else:
                 form_novo_pedido(user)
-        with tab_vendedor:
-            tela_bko_vendedor(user, get_gc())
 
     else:  # parceiro / vendedor
         tab_meus, tab_novo = st.tabs(["📋 Meus Pedidos", "➕ Novo Pedido"])
