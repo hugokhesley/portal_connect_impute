@@ -139,6 +139,93 @@ def _load_colaboradores(_gc):
         return pd.DataFrame()
 
 
+@st.cache_data(ttl=120, show_spinner=False)
+def _load_radar(_gc):
+    """Carrega dados do Radar (mesma planilha do dashboard) para enriquecer a tabela de preenchidos.
+    Retorna df com: pedido, cnpj, status_dash, fila_atual, acessos, preco_oferta, mes_ativacao, phoenix
+    """
+    try:
+        sheet_url = st.secrets["sheets"]["url"]
+        planilha  = _gc.open_by_url(sheet_url)
+        IGNORE    = {"metas", "bko-vendedor-real", "colaboradores", "portalusuarios", "portalpedidos"}
+        dfs = []
+        for ws in planilha.worksheets():
+            if ws.title.strip().lower() in IGNORE:
+                continue
+            try:
+                vals = ws.get_all_values()
+                if not vals or len(vals) < 2:
+                    continue
+                header_raw = [str(h).strip().lower() for h in vals[0]]
+                if "pedido" not in header_raw:
+                    continue
+                rows = vals[1:]
+                n = len(header_raw)
+                rows = [r + [""] * (n - len(r)) if len(r) < n else r[:n] for r in rows]
+                df = pd.DataFrame(rows, columns=header_raw)
+                dfs.append(df)
+            except Exception:
+                continue
+        if not dfs:
+            return pd.DataFrame()
+        all_cols = list(dict.fromkeys(c for d in dfs for c in d.columns))
+        df = pd.concat([d.reindex(columns=all_cols) for d in dfs], ignore_index=True)
+
+        # Normaliza pedido
+        def _np(v):
+            s = str(v).strip()
+            if s.endswith(".0"):
+                s = s[:-2]
+            return s.lstrip("0") or s
+
+        df["pedido"] = df["pedido"].apply(_np)
+        df = df[df["pedido"] != ""].drop_duplicates("pedido")
+
+        # Mapeia colunas de interesse
+        col_map = {}
+        for c in df.columns:
+            cn = c.lower().strip()
+            if cn == "cnpj":                          col_map[c] = "cnpj"
+            elif cn in ("fila atual", "fila_atual"):  col_map[c] = "fila_atual"
+            elif cn in ("acessos",):                  col_map[c] = "acessos"
+            elif cn in ("preco oferta", "preco_oferta"): col_map[c] = "preco_oferta"
+            elif cn == "phoenix":                     col_map[c] = "phoenix"
+            elif cn in ("data ativacao", "data_ativacao"): col_map[c] = "data_ativacao"
+            elif cn in ("status", "status_dash"):     col_map[c] = "status_dash"
+
+        df = df.rename(columns=col_map)
+
+        # Calcula mes_ativacao se tiver data_ativacao
+        if "data_ativacao" in df.columns and "mes_ativacao" not in df.columns:
+            def _parse_mes(v):
+                s = str(v).strip()
+                for fmt in ("%d/%m/%Y", "%Y-%m-%d", "%m/%Y"):
+                    try:
+                        return pd.to_datetime(s, format=fmt).strftime("%m/%Y")
+                    except Exception:
+                        pass
+                return ""
+            df["mes_ativacao"] = df["data_ativacao"].apply(_parse_mes)
+
+        # Status dash se não tiver
+        STATUS_MAP = {
+            "PRE-VENDA": "PRE-VENDA", "EM ANALISE": "EM ANALISE",
+            "CREDITO": "CREDITO", "DEVOLVIDOS": "DEVOLVIDOS",
+            "ENTRANTE": "ENTRANTE", "CONCLUÍDO": "CONCLUÍDO", "CONCLUIDO": "CONCLUÍDO",
+            "REANÁLISE REPROVADA": "DEVOLVIDOS", "REANÁLISE": "EM ANALISE",
+        }
+        if "fila_atual" in df.columns and "status_dash" not in df.columns:
+            df["status_dash"] = df["fila_atual"].apply(
+                lambda x: STATUS_MAP.get(str(x).strip().upper(), str(x).strip())
+            )
+
+        keep = ["pedido"] + [c for c in ["cnpj","fila_atual","status_dash","acessos",
+                                          "preco_oferta","mes_ativacao","phoenix"] if c in df.columns]
+        return df[keep].copy()
+    except Exception as e:
+        return pd.DataFrame()
+
+
 def _gravar_vendedor(gc, pedido, vendedor_real, lider, usuario_portal):
     try:
         aba   = gc.open_by_key(SPREADSHEET_ID).worksheet(ABA_BKO)
@@ -333,7 +420,7 @@ def tela_bko_vendedor(user: dict, gc):
     with tab_pend:
         _render_pendentes(df_pendentes, vendedores_lista, mapa_lider, user, gc, is_admin)
     with tab_todos:
-        _render_preenchidos(df_completos, vendedores_lista, mapa_lider, user, gc, is_admin)
+        _render_preenchidos(df_completos, vendedores_lista, mapa_lider, user, gc, is_admin, df_radar=_load_radar(gc))
 
 
 # ─── PENDENTES ────────────────────────────────────────────────────
@@ -445,21 +532,34 @@ def _render_pendentes(df, vendedores_lista, mapa_lider, user, gc, is_admin):
 
 # ─── PREENCHIDOS (admin pode alterar, outros só visualizam) ───────
 
-def _render_preenchidos(df, vendedores_lista, mapa_lider, user, gc, is_admin):
+def _render_preenchidos(df, vendedores_lista, mapa_lider, user, gc, is_admin, df_radar=None):
     if df.empty:
         st.info("Nenhum pedido preenchido no período selecionado.")
         return
+
+    # Enriquece com dados do Radar (merge pelo pedido)
+    df_enrich = df.copy()
+    if df_radar is not None and not df_radar.empty:
+        def _np(v):
+            s = str(v).strip()
+            return s[:-2].lstrip("0") if s.endswith(".0") else s.lstrip("0") or s
+        df_enrich["_pedido_norm"] = df_enrich[COL_PEDIDO].apply(_np)
+        df_radar["_pedido_norm"]  = df_radar["pedido"].apply(_np)
+        df_enrich = df_enrich.merge(
+            df_radar.drop(columns=["pedido"]),
+            on="_pedido_norm", how="left"
+        ).drop(columns=["_pedido_norm"])
 
     col_f1, col_f2 = st.columns(2)
     with col_f1:
         busca = st.text_input("🔍 Empresa / pedido", key="bv_busca_pre")
     with col_f2:
         lider_opts = ["Todos"] + sorted({str(r.get(COL_LIDER,"")).strip()
-                                          for _, r in df.iterrows()
+                                          for _, r in df_enrich.iterrows()
                                           if str(r.get(COL_LIDER,"")).strip()})
         lider_f = st.selectbox("Equipe / Líder", lider_opts, key="bv_lider_f")
 
-    df_f = df.copy()
+    df_f = df_enrich.copy()
     if busca:
         mask = pd.Series(False, index=df_f.index)
         for col in [COL_RAZAO_SOCIAL, COL_PEDIDO]:
@@ -471,27 +571,41 @@ def _render_preenchidos(df, vendedores_lista, mapa_lider, user, gc, is_admin):
 
     st.caption(f"**{len(df_f)}** pedido(s) preenchidos")
 
-    cols_show = [c for c in [
-        COL_PEDIDO, COL_RAZAO_SOCIAL, COL_STATUS, COL_MES_ATIVACAO,
-        COL_VENDEDOR_REAL, COL_LIDER, COL_ACESSOS, COL_PRECO
-    ] if c in df_f.columns]
+    # Monta lista de colunas disponíveis na ordem desejada
+    COLS_ORDEM = [
+        (COL_PEDIDO,        "Nº Pedido"),
+        ("cnpj",            "CNPJ"),
+        (COL_RAZAO_SOCIAL,  "Razão Social"),
+        ("status_dash",     "Status"),
+        ("fila_atual",      "Fila Atual"),
+        ("phoenix",         "Phoenix"),
+        ("acessos",         "Acessos"),
+        ("preco_oferta",    "Receita (R$)"),
+        (COL_SAFRA,         "Mês Referência"),
+        ("mes_ativacao",    "Mês Ativação"),
+        (COL_VENDEDOR_REAL, "Vendedor Real"),
+        (COL_LIDER,         "Líder"),
+    ]
 
-    col_cfg = {
-        COL_PEDIDO:       "Pedido",
-        COL_RAZAO_SOCIAL: "Razão Social",
-        COL_STATUS:       "Status",
-        COL_MES_ATIVACAO: "Mês Ativação",
-        COL_VENDEDOR_REAL:"Vendedor Real",
-        COL_LIDER:        "Líder",
-        COL_ACESSOS:      st.column_config.NumberColumn("Acessos", format="%d"),
-        COL_PRECO:        st.column_config.NumberColumn("R$", format="R$ %.2f"),
-    }
+    cols_show  = [c for c, _ in COLS_ORDEM if c in df_f.columns]
+    col_labels = {c: lbl for c, lbl in COLS_ORDEM}
+
+    col_cfg = {}
+    for c, lbl in COLS_ORDEM:
+        if c not in df_f.columns:
+            continue
+        if c in ("acessos",):
+            col_cfg[c] = st.column_config.NumberColumn(lbl, format="%d")
+        elif c in ("preco_oferta",):
+            col_cfg[c] = st.column_config.NumberColumn(lbl, format="R$ %.2f")
+        else:
+            col_cfg[c] = lbl
 
     st.dataframe(
         df_f[cols_show].reset_index(drop=True),
         use_container_width=True,
         hide_index=True,
-        column_config={k: v for k, v in col_cfg.items() if k in cols_show},
+        column_config=col_cfg,
     )
 
     # Edição — SOMENTE ADMIN
