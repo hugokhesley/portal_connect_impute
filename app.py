@@ -592,21 +592,26 @@ def card_pedido(row, user, mostrar_acao=False, contexto=""):
     except Exception:
         n_port = 0
 
-    html = f"""<div class="pedido-card" style="border-left-color:{cor};margin-bottom:10px">
-  <div style="display:flex;justify-content:space-between;align-items:start;flex-wrap:wrap;gap:8px">
-    <div style="flex:1;min-width:200px">
-      <div class="pedido-empresa">{empresa}</div>
-      <div class="pedido-info">CNPJ: {cnpj} · {produto} · {acessos} acessos novos</div>
-      <div class="pedido-info">{extra}📅 {data}</div>
-      <div class="pedido-info">👤 {cad_por} ({perfil_c}) · {vinculo_c}</div>
-      {"<div class='pedido-info'>📱 " + str(n_port) + " acesso(s) portado(s)</div>" if n_port > 0 else ""}
-    </div>
-    <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px">
-      <span class="status-badge" style="background:{cor}">{status}</span>
-      <span style="font-size:0.7rem;color:#94a3b8;font-weight:600">ID: {id_show}</span>
-    </div>
-  </div>
-</div>"""
+    # Pré-calcula strings condicionais FORA do f-string
+    linha_portados = f"<div class='pedido-info'>📱 {n_port} acesso(s) portado(s)</div>" if n_port > 0 else ""
+
+    html = (
+        f'<div class="pedido-card" style="border-left-color:{cor};margin-bottom:10px">'
+        f'<div style="display:flex;justify-content:space-between;align-items:start;flex-wrap:wrap;gap:8px">'
+        f'<div style="flex:1;min-width:200px">'
+        f'<div class="pedido-empresa">{empresa}</div>'
+        f'<div class="pedido-info">CNPJ: {cnpj} · {produto} · {acessos} acessos novos</div>'
+        f'<div class="pedido-info">{extra}📅 {data}</div>'
+        f'<div class="pedido-info">👤 {cad_por} ({perfil_c}) · {vinculo_c}</div>'
+        f'{linha_portados}'
+        f'</div>'
+        f'<div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px">'
+        f'<span class="status-badge" style="background:{cor}">{status}</span>'
+        f'<span style="font-size:0.7rem;color:#94a3b8;font-weight:600">ID: {id_show}</span>'
+        f'</div>'
+        f'</div>'
+        f'</div>'
+    )
 
     if mostrar_acao:
         col_card, col_btn = st.columns([5, 1])
@@ -633,7 +638,28 @@ def render_ficha(row):
     try:
         portados = json.loads(row.get("acessos_portados","[]"))
     except Exception:
-        pass
+        portados = []
+
+    # Pré-calcula seções condicionais FORA do f-string
+    secao_portados = ""
+    if portados:
+        linhas_port = "".join([
+            f"<div class='ficha-field'>"
+            f"<span class='ficha-key'>{p.get('nome','')}</span>"
+            f"<span class='ficha-val'>CPF: {p.get('cpf','')} · GSM: {p.get('gsm','')}</span>"
+            f"</div>"
+            for p in portados
+        ])
+        secao_portados = f'<div class="ficha-section"><div class="ficha-title">📱 Acessos Portados</div>{linhas_port}</div>'
+
+    secao_obs = ""
+    if row.get("obs_tc"):
+        secao_obs = (
+            f'<div class="ficha-section">'
+            f'<div class="ficha-title">📝 Obs. Termo de Contratação</div>'
+            f'<div style="font-size:0.82rem;color:#1e293b">{row.get("obs_tc","")}</div>'
+            f'</div>'
+        )
 
     st.markdown(f"""
     <div class="ficha-box">
@@ -679,9 +705,8 @@ def render_ficha(row):
         <div class="ficha-field"><span class="ficha-key">Email Fatura</span><span class="ficha-val">{row.get('fat_email','')}</span></div>
       </div>
 
-      {'<div class="ficha-section"><div class="ficha-title">📱 Acessos Portados</div>' + ''.join([f"<div class='ficha-field'><span class='ficha-key'>{p.get('nome','')}</span><span class='ficha-val'>CPF: {p.get('cpf','')} · GSM: {p.get('gsm','')}</span></div>" for p in portados]) + '</div>' if portados else ''}
-
-      {'<div class="ficha-section"><div class="ficha-title">📝 Obs. Termo de Contratação</div><div style="font-size:0.82rem;color:#1e293b">' + row.get("obs_tc","") + '</div></div>' if row.get("obs_tc") else ''}
+      {secao_portados}
+      {secao_obs}
 
     </div>
     """, unsafe_allow_html=True)
