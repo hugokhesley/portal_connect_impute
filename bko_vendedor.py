@@ -153,13 +153,17 @@ def tela_bko_vendedor(user: dict, gc):
     # Mapa vendedor → lider
     mapa_lider = {}
     if not df_colab.empty:
-        vcol = next((c for c in df_colab.columns if "vendedor" in c), None)
-        lcol = next((c for c in df_colab.columns if "lider" in c or "líder" in c), None)
+        import unicodedata
+        def _norm(s):
+            return ''.join(c for c in unicodedata.normalize('NFD', str(s).lower()) if unicodedata.category(c) != 'Mn')
+        # Busca colunas por nome normalizado (ignora maiúsculas e acentos)
+        vcol = next((c for c in df_colab.columns if "vendedor" in _norm(c)), None)
+        lcol = next((c for c in df_colab.columns if "lider" in _norm(c)), None)
         if vcol and lcol:
             for _, row in df_colab.iterrows():
                 v = str(row[vcol]).strip()
                 l = str(row[lcol]).strip()
-                if v:
+                if v and v.upper() not in ("VENDEDOR", ""):
                     mapa_lider[v] = l
 
     vendedores_lista = sorted(mapa_lider.keys())
