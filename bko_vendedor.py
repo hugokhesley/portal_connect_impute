@@ -40,21 +40,38 @@ COR_STATUS = {
 
 
 def _parse_sheet(valores):
-    """Converte get_all_values() em DataFrame sem erro de colunas duplicadas."""
-    if not valores or len(valores) < 2:
+    """Converte get_all_values() em DataFrame sem erro de colunas duplicadas.
+    Pula linhas vazias iniciais para encontrar o header real."""
+    if not valores:
         return pd.DataFrame()
+
+    # Encontra a primeira linha não-vazia (header real)
+    header_idx = 0
+    for i, row in enumerate(valores):
+        if any(str(c).strip() for c in row):
+            header_idx = i
+            break
+
+    if header_idx >= len(valores) - 1:
+        return pd.DataFrame()
+
+    header_raw = valores[header_idx]
+    rows_raw   = valores[header_idx + 1:]
+
     seen = {}
     header = []
-    for h in valores[0]:
-        k = str(h).strip().lower().replace(" ", "_") or "col"
-        if k in seen:
-            seen[k] += 1
-            k = f"{k}_{seen[k]}"
+    for h in header_raw:
+        k = str(h).strip() or "col"  # mantém case original para debug
+        k_lower = k.lower().replace(" ", "_")
+        if k_lower in seen:
+            seen[k_lower] += 1
+            k_lower = f"{k_lower}_{seen[k_lower]}"
         else:
-            seen[k] = 0
-        header.append(k)
+            seen[k_lower] = 0
+        header.append(k_lower)
+
     n = len(header)
-    rows = [r + [""] * (n - len(r)) if len(r) < n else r[:n] for r in valores[1:]]
+    rows = [r + [""] * (n - len(r)) if len(r) < n else r[:n] for r in rows_raw]
     df = pd.DataFrame(rows, columns=header)
     return df[df.apply(lambda r: any(str(v).strip() for v in r), axis=1)]
 
@@ -119,23 +136,21 @@ def _kpi(valor, label, cor_val, cor_bg, cor_borda):
     </div>"""
 
 def _card(razao, pedido, fila, status, acessos, preco_fmt, ativ_badge, cor):
-    return f"""
-    <div style="background:{BG_CARD};border:1px solid {BD_CARD};border-left:4px solid {cor};
-                border-radius:10px;padding:12px 16px;margin-bottom:6px">
-      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
-        <div>
-          <span style="font-size:0.95rem;font-weight:700;color:{TX_MAIN}">{razao}</span>
-          <span style="font-size:0.72rem;color:{TX_SUB};margin-left:8px">#{pedido}</span>
-        </div>
-        <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
-          {ativ_badge}
-          <span style="background:{cor}22;color:{cor};border:1px solid {cor};
-                       display:inline-block;padding:2px 9px;border-radius:99px;
-                       font-size:0.67rem;font-weight:700">{status}</span>
-          <span style="font-size:0.72rem;color:{TX_SUB}">{fila} · {acessos} ac. · {preco_fmt}</span>
-        </div>
-      </div>
-    </div>"""
+    return (
+        f'<div style="background:#1e293b !important;border:1px solid #334155;border-left:4px solid {cor};'
+        f'border-radius:10px;padding:12px 16px;margin-bottom:6px">'
+        f'<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">'
+        f'<div>'
+        f'<span style="font-size:0.95rem;font-weight:700;color:#f1f5f9 !important">{razao}</span>'
+        f'<span style="font-size:0.72rem;color:#94a3b8 !important;margin-left:8px">#{pedido}</span>'
+        f'</div>'
+        f'<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">'
+        f'{ativ_badge}'
+        f'<span style="background:{cor}33;color:{cor} !important;border:1px solid {cor};'
+        f'display:inline-block;padding:2px 9px;border-radius:99px;font-size:0.67rem;font-weight:700">{status}</span>'
+        f'<span style="font-size:0.72rem;color:#94a3b8 !important">{fila} · {acessos} ac. · {preco_fmt}</span>'
+        f'</div></div></div>'
+    )
 
 
 # ─── componente principal ─────────────────────────────────────────
