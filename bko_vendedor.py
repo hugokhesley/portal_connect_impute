@@ -16,7 +16,7 @@ ABA_COLABORADORES = "Colaboradores"
 # Header real: SAFRA | pedido | RAZÃO SOCIAL | VENDEDOR REAL | LIDER | TBP
 COL_SAFRA         = "safra"           # col   → SAFRA (mês de referência)
 COL_PEDIDO        = "pedido"          # col_1 → pedido
-COL_RAZAO_SOCIAL  = "razão_social"    # col_2 → RAZÃO SOCIAL
+COL_RAZAO_SOCIAL  = "razao_social"    # col_2 → RAZÃO SOCIAL
 COL_VENDEDOR_REAL = "vendedor_real"   # col_3 → VENDEDOR REAL
 COL_LIDER         = "lider"           # não_preencher → LIDER
 COL_TBP           = "tbp"             # col_4 → TBP
