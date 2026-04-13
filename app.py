@@ -882,7 +882,8 @@ def form_novo_pedido(user):
             if not all([cnpj, razao_social, adm_nome, adm_cpf, end_cep]):
                 st.error("⚠️ Preencha todos os campos obrigatórios (*)")
             else:
-                dados_pedido = {
+                # Salva dados da etapa 1 no session_state e avança para etapa 2
+                st.session_state.form_etapa1 = {
                     "cnpj": cnpj, "inscricao_estadual": inscricao_estadual,
                     "atividade_economica": atividade_economica,
                     "razao_social": razao_social, "nome_fantasia": nome_fantasia,
@@ -901,21 +902,151 @@ def form_novo_pedido(user):
                     "ent_hora_ini": ent_hora_ini, "ent_hora_fim": ent_hora_fim,
                     "fat_tipo": fat_tipo, "fat_dia_vencimento": fat_dia, "fat_email": fat_email,
                     "produto": produto, "qtd_acessos_novos": qtd_acessos_novos,
-                    "acessos_portados": portados_lista,
                     "obs_tc": obs_tc,
                 }
-                with st.spinner("Salvando pedido e notificando BKO..."):
-                    id_novo = salvar_pedido(dados_pedido, user)
-                    enviar_email_bko(id_novo, dados_pedido, user)
+                st.session_state.form_etapa = 2
+                st.rerun()
 
-                st.success(f"""
-                ✅ **Pedido {id_novo} enviado para a fila de impute!**
 
-                O BKO foi notificado por e-mail e vai processar em breve.
-                Solicite ao cliente que envie a documentação para:
-                **adm@connectgroup.solutions**
-                """)
-                st.session_state.pop("form_cnpj_dados", None)
+def form_etapa2_linhas(user):
+    """Etapa 2 — Composição de linhas do pedido."""
+    from etapa2_linhas import form_linhas, resumo_linhas_html, linhas_para_texto
+
+    e1 = st.session_state.get("form_etapa1", {})
+
+    # Breadcrumb
+    st.markdown(f"""
+    <div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:10px;
+                padding:12px 18px;margin-bottom:20px;font-size:0.85rem;color:#1e40af">
+      📋 <b>Etapa 1 concluída</b> — Cliente: <b>{e1.get('razao_social','')}</b>
+      · CNPJ: {e1.get('cnpj','')} · Produto: {e1.get('produto','')}
+      &nbsp;&nbsp;
+      <span style="color:#64748b;font-size:0.78rem">
+        (etapa 2 de 2 — Composição das linhas)
+      </span>
+    </div>
+    """, unsafe_allow_html=True)
+
+    st.markdown('<div class="section-header">📱 COMPOSIÇÃO DAS LINHAS</div>', unsafe_allow_html=True)
+
+    # Formulário de linhas (fora do st.form para permitir widgets dinâmicos)
+    dados_linhas = form_linhas(key_prefix="etapa2")
+
+    st.markdown("")
+
+    col_voltar, col_enviar = st.columns([1, 3])
+    with col_voltar:
+        if st.button("◀ Voltar para Etapa 1", use_container_width=True):
+            st.session_state.form_etapa = 1
+            st.rerun()
+    with col_enviar:
+        if st.button("✅ Enviar Pedido para Fila de Impute", type="primary", use_container_width=True):
+            if dados_linhas["total_linhas"] == 0:
+                st.error("Adicione pelo menos 1 linha ao pedido.")
+                return
+
+            # Monta dados completos
+            dados_completos = {
+                **e1,
+                "linhas_json":    linhas_para_texto(dados_linhas),
+                "total_linhas":   dados_linhas["total_linhas"],
+                "total_valor_mensal": dados_linhas["total_valor"],
+                "n_linhas_novas": dados_linhas["n_novas"],
+                "n_linhas_portadas": dados_linhas["n_portadas"],
+                # Mantém campo legado
+                "acessos_portados": [],
+                "qtd_acessos_novos": dados_linhas["total_linhas"],
+            }
+
+            with st.spinner("Salvando pedido e notificando BKO..."):
+                id_novo = salvar_pedido(dados_completos, user)
+                # Envia email com resumo de linhas
+                _enviar_email_com_linhas(id_novo, dados_completos, dados_linhas, user)
+
+            st.success(f"""
+            ✅ **Pedido {id_novo} enviado para a fila de impute!**
+
+            **{dados_linhas['total_linhas']} linhas** · 
+            {dados_linhas['n_novas']} novas · {dados_linhas['n_portadas']} portadas · 
+            R$ {dados_linhas['total_valor']:.2f}/mês
+
+            O BKO foi notificado por e-mail. Solicite ao cliente que envie a documentação para:
+            **adm@connectgroup.solutions**
+            """)
+
+            # Limpa sessão
+            st.session_state.pop("form_cnpj_dados", None)
+            st.session_state.pop("form_etapa1", None)
+            st.session_state.pop("form_etapa", None)
+            st.rerun()
+
+
+def _enviar_email_com_linhas(id_pedido, dados, dados_linhas, user):
+    """Envia email BKO incluindo resumo de linhas."""
+    try:
+        from etapa2_linhas import resumo_linhas_html
+        cfg = st.secrets["email"]
+        tabela_linhas = resumo_linhas_html(dados_linhas)
+
+        html = f"""<html><body style="font-family:Arial,sans-serif;color:#333;max-width:900px">
+          <div style="background:linear-gradient(135deg,#0f2027,#2c5364);padding:20px 30px;border-radius:12px;margin-bottom:24px">
+            <h2 style="color:#fff;margin:0">📋 Novo Pedido para Impute — {id_pedido}</h2>
+            <p style="color:rgba(255,255,255,0.7);margin:6px 0 0">
+              Cadastrado por: <b>{user['nome']}</b> ({PERFIS.get(user['perfil'],{}).get('label','')})
+              · {datetime.now().strftime('%d/%m/%Y às %H:%M')}
+            </p>
+          </div>
+
+          <div style="background:#fefce8;border:1px solid #fde047;border-radius:10px;padding:16px 20px;margin-bottom:20px">
+            <b style="color:#713f12">📎 DOCUMENTAÇÃO NECESSÁRIA</b><br>
+            <span style="font-size:13px;color:#92400e">
+              Solicite ao vendedor/parceiro: Contrato Social · RG/CPF do Administrador · 
+              Comprovante de Endereço · Documentos dos Sócios
+            </span>
+          </div>
+
+          <table style="border-collapse:collapse;width:100%;font-size:13px;margin-bottom:16px">
+            <tr style="background:#1e3a5f;color:#fff">
+              <th colspan="2" style="padding:10px 14px;text-align:left">🏢 DADOS DO CLIENTE</th>
+            </tr>
+            <tr><td style="padding:7px 14px;background:#f8fafc;border:1px solid #e2e8f0;width:35%;font-weight:600">Razão Social</td>
+                <td style="padding:7px 14px;border:1px solid #e2e8f0"><b>{dados.get('razao_social','')}</b></td></tr>
+            <tr><td style="padding:7px 14px;background:#f8fafc;border:1px solid #e2e8f0;font-weight:600">CNPJ</td>
+                <td style="padding:7px 14px;border:1px solid #e2e8f0">{dados.get('cnpj','')}</td></tr>
+            <tr><td style="padding:7px 14px;background:#f8fafc;border:1px solid #e2e8f0;font-weight:600">Administrador</td>
+                <td style="padding:7px 14px;border:1px solid #e2e8f0">{dados.get('adm_nome','')} {dados.get('adm_sobrenome','')} · CPF: {dados.get('adm_cpf','')}</td></tr>
+            <tr><td style="padding:7px 14px;background:#f8fafc;border:1px solid #e2e8f0;font-weight:600">Endereço</td>
+                <td style="padding:7px 14px;border:1px solid #e2e8f0">{dados.get('end_logradouro','')} {dados.get('end_numero','')} · {dados.get('end_bairro','')} · {dados.get('end_cidade','')}/{dados.get('end_estado','')}</td></tr>
+            <tr><td style="padding:7px 14px;background:#f8fafc;border:1px solid #e2e8f0;font-weight:600">Faturamento</td>
+                <td style="padding:7px 14px;border:1px solid #e2e8f0">{dados.get('fat_tipo','')} · Vence dia {dados.get('fat_dia_vencimento','')}</td></tr>
+          </table>
+
+          <div style="margin-bottom:16px">
+            <div style="background:#1e3a5f;color:#fff;padding:10px 14px;border-radius:6px 6px 0 0;font-size:13px;font-weight:700">
+              📱 COMPOSIÇÃO DAS LINHAS — {dados_linhas['total_linhas']} linha(s) · R$ {dados_linhas['total_valor']:.2f}/mês
+            </div>
+            <div style="border:1px solid #e2e8f0;border-radius:0 0 6px 6px;padding:12px 14px">
+              {tabela_linhas}
+            </div>
+          </div>
+
+          {'<div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:12px 16px;font-size:13px"><b>📝 Obs. Termo de Contratação:</b><br>' + dados.get("obs_tc","") + '</div>' if dados.get("obs_tc") else ''}
+
+          <hr style="border:none;border-top:1px solid #e2e8f0;margin:20px 0">
+          <p style="font-size:11px;color:#94a3b8">Portal de Impute · Connect Group · {datetime.now().strftime('%d/%m/%Y às %H:%M')}</p>
+        </body></html>"""
+
+        msg = MIMEMultipart("alternative")
+        msg["Subject"] = f"[IMPUTE] {id_pedido} — {dados.get('razao_social','')} · {dados_linhas['total_linhas']} linha(s)"
+        msg["From"]    = cfg.get("from", cfg["user"])
+        msg["To"]      = ", ".join(EMAILS_BKO)
+        msg.attach(MIMEText(html, "html"))
+
+        with smtplib.SMTP_SSL(cfg["host"], int(cfg["port"]), timeout=20) as sv:
+            sv.login(cfg["user"], cfg["password"])
+            sv.sendmail(cfg["user"], EMAILS_BKO, msg.as_string())
+    except Exception as e:
+        st.warning(f"⚠️ Pedido salvo, mas erro ao enviar e-mail: {e}")
 
 
 # ─────────────────────────────────────────────────────────────────
@@ -1173,7 +1304,11 @@ def main():
         with tab_todos:
             tela_todos_pedidos(df_filtrado, user)
         with tab_novo:
-            form_novo_pedido(user)
+            etapa = st.session_state.get("form_etapa", 1)
+            if etapa == 2:
+                form_etapa2_linhas(user)
+            else:
+                form_novo_pedido(user)
         with tab_usuarios:
             if user["perfil"] == "admin":
                 tela_usuarios(user)
@@ -1193,7 +1328,11 @@ def main():
         with tab_todos:
             tela_todos_pedidos(df_filtrado, user)
         with tab_novo:
-            form_novo_pedido(user)
+            etapa = st.session_state.get("form_etapa", 1)
+            if etapa == 2:
+                form_etapa2_linhas(user)
+            else:
+                form_novo_pedido(user)
 
     else:  # parceiro / vendedor
         tab_meus, tab_novo = st.tabs(["📋 Meus Pedidos", "➕ Novo Pedido"])
@@ -1207,7 +1346,11 @@ def main():
                 for _, row in df_m.iterrows():
                     card_pedido(row, user, mostrar_acao=True, contexto="_meus")
         with tab_novo:
-            form_novo_pedido(user)
+            etapa = st.session_state.get("form_etapa", 1)
+            if etapa == 2:
+                form_etapa2_linhas(user)
+            else:
+                form_novo_pedido(user)
 
 
 main()
