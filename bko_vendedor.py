@@ -294,7 +294,6 @@ def tela_bko_vendedor(user: dict, gc):
 
     # Header
     st.markdown(f"""
-    {CSS}
     <div class="bv-header">
       <div>
         <div class="bv-header-title">🎯 Cadastro de Vendedor Real</div>
