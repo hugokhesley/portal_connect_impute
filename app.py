@@ -454,7 +454,8 @@ def _enviar_telegram_impute(chat_id: str, mensagem: str) -> bool:
 
 
 def notificar_mudanca_status(id_pedido: str, novo_status: str, razao_social: str,
-                              cadastrado_por: str, bko_login: str) -> list:
+                              cadastrado_por: str, bko_login: str,
+                              status_anterior: str = "") -> list:
     """Notifica via Telegram quando status de pedido muda. Retorna lista de resultados."""
     resultados = []
     try:
@@ -473,12 +474,17 @@ def notificar_mudanca_status(id_pedido: str, novo_status: str, razao_social: str
             return resultados
 
         nl = "\n"
+        linha_status = (
+            f"🔄 Status: <s>{status_anterior}</s> → <b>{novo_status}</b>{nl}"
+            if status_anterior and status_anterior != novo_status
+            else f"🔄 Status: <b>{novo_status}</b>{nl}"
+        )
         msg = (
-            f"📋 <b>Status Atualizado — Portal Impute</b>{nl}{nl}"
+            f"📋 <b>Atualização de Pedido — Portal Impute</b>{nl}{nl}"
             f"🏢 <b>{razao_social}</b>{nl}"
-            f"📌 Pedido: <b>{id_pedido}</b>{nl}"
-            f"🔄 Novo status: <b>{novo_status}</b>{nl}"
-            f"👤 Atualizado por: {bko_login}{nl}"
+            f"📌 Nº Pedido: <b>{id_pedido}</b>{nl}"
+            f"{linha_status}"
+            f"👤 Atualizado por: <b>{bko_login}</b>{nl}"
             f"📅 {datetime.now().strftime('%d/%m/%Y às %H:%M')}"
         )
 
@@ -602,6 +608,7 @@ def atualizar_status_pedido(id_pedido: str, novo_status: str, pedido_tim: str, o
                 aba.update_cell(linha, 52, obs_interna)
             st.cache_data.clear()
             # Notifica via Telegram
+            # Notificação automática sem status_anterior (fallback interno)
             notificar_mudanca_status(id_pedido, novo_status, razao_social, cadastrado_por, bko_login)
             return True
     return False
@@ -1589,18 +1596,32 @@ def tela_todos_pedidos(df, user):
                         razao_social=str(row.get("razao_social","")),
                         cadastrado_por=str(row.get("cadastrado_por",""))
                     ):
-                        st.success("✅ Status atualizado!")
-                        # Mostra resultado das notificações
+                        # Guarda resultado no session_state para mostrar após rerun
                         res_tg = notificar_mudanca_status(
                             id_pedido, novo_status,
                             str(row.get("razao_social","")),
                             str(row.get("cadastrado_por","")),
-                            user["login"]
+                            user["login"],
+                            status_anterior=str(row.get("status",""))
                         )
-                        if res_tg:
-                            with st.expander("📣 Notificações Telegram", expanded=True):
-                                for r in res_tg:
-                                    st.caption(r)
+                        st.session_state["tg_notif_resultado"] = res_tg
+                        st.session_state["tg_notif_pedido"]    = id_pedido
+                        st.rerun()
+
+                # Mostra resultado da notificação após rerun
+                if (st.session_state.get("tg_notif_pedido") == id_pedido
+                        and st.session_state.get("tg_notif_resultado")):
+                    res_tg = st.session_state["tg_notif_resultado"]
+                    todos_ok = all(r.startswith("✅") for r in res_tg)
+                    with st.expander(
+                        f"{'✅' if todos_ok else '⚠️'} Notificações Telegram — clique para ver",
+                        expanded=not todos_ok
+                    ):
+                        for r in res_tg:
+                            st.caption(r)
+                    if st.button("🗑️ Fechar diagnóstico", key=f"close_tg_{id_pedido}"):
+                        st.session_state.pop("tg_notif_resultado", None)
+                        st.session_state.pop("tg_notif_pedido", None)
                         st.rerun()
 
     if not df_f.empty:
