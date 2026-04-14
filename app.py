@@ -454,36 +454,56 @@ def _enviar_telegram_impute(chat_id: str, mensagem: str) -> bool:
 
 
 def notificar_mudanca_status(id_pedido: str, novo_status: str, razao_social: str,
-                              cadastrado_por: str, bko_login: str):
-    """Notifica via Telegram quando status de pedido muda."""
+                              cadastrado_por: str, bko_login: str) -> list:
+    """Notifica via Telegram quando status de pedido muda. Retorna lista de resultados."""
+    resultados = []
     try:
-        df_usu = load_usuarios()
-        if df_usu.empty or "telegram_id" not in df_usu.columns:
-            return
+        token = st.secrets.get("telegram_impute", {}).get("token", "")
+        if not token:
+            resultados.append("❌ Token do bot não configurado nos secrets (telegram_impute.token)")
+            return resultados
 
+        df_usu = load_usuarios()
+        if df_usu.empty:
+            resultados.append("❌ Nenhum usuário cadastrado")
+            return resultados
+
+        if "telegram_id" not in df_usu.columns:
+            resultados.append("❌ Coluna telegram_id não existe na planilha PortalUsuarios")
+            return resultados
+
+        nl = "\n"
         msg = (
-            f"📋 <b>Status Atualizado — Portal Impute</b>\n\n"
-            f"🏢 <b>{razao_social}</b>\n"
-            f"📌 Pedido: <b>{id_pedido}</b>\n"
-            f"🔄 Novo status: <b>{novo_status}</b>\n"
-            f"👤 Atualizado por: {bko_login}\n"
+            f"📋 <b>Status Atualizado — Portal Impute</b>{nl}{nl}"
+            f"🏢 <b>{razao_social}</b>{nl}"
+            f"📌 Pedido: <b>{id_pedido}</b>{nl}"
+            f"🔄 Novo status: <b>{novo_status}</b>{nl}"
+            f"👤 Atualizado por: {bko_login}{nl}"
             f"📅 {datetime.now().strftime('%d/%m/%Y às %H:%M')}"
         )
 
-        # Notifica: quem cadastrou + quem atualizou + todos os admins
         logins_notif = {cadastrado_por, bko_login}
         admins = df_usu[df_usu["perfil"] == "admin"]["login"].tolist()
         logins_notif.update(admins)
 
         for login in logins_notif:
+            if not login:
+                continue
             row = df_usu[df_usu["login"] == login]
             if row.empty:
+                resultados.append(f"⚠️ Login '{login}' não encontrado")
                 continue
             tid = str(row.iloc[0].get("telegram_id", "")).strip()
-            if tid and tid not in ("", "nan"):
-                _enviar_telegram_impute(tid, msg)
-    except Exception:
-        pass
+            if not tid or tid in ("", "nan", "None"):
+                resultados.append(f"⚠️ {login} — sem Telegram ID cadastrado")
+                continue
+            ok = _enviar_telegram_impute(tid, msg)
+            resultados.append(f"{'✅' if ok else '❌'} {login} (ID: {tid})")
+
+    except Exception as e:
+        resultados.append(f"❌ Erro: {e}")
+
+    return resultados
 
 
 def gerar_id():
@@ -1569,7 +1589,18 @@ def tela_todos_pedidos(df, user):
                         razao_social=str(row.get("razao_social","")),
                         cadastrado_por=str(row.get("cadastrado_por",""))
                     ):
-                        st.success("✅ Atualizado!")
+                        st.success("✅ Status atualizado!")
+                        # Mostra resultado das notificações
+                        res_tg = notificar_mudanca_status(
+                            id_pedido, novo_status,
+                            str(row.get("razao_social","")),
+                            str(row.get("cadastrado_por","")),
+                            user["login"]
+                        )
+                        if res_tg:
+                            with st.expander("📣 Notificações Telegram", expanded=True):
+                                for r in res_tg:
+                                    st.caption(r)
                         st.rerun()
 
     if not df_f.empty:
