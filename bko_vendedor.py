@@ -235,10 +235,22 @@ def _detectar_e_notificar_mudancas(gc, df_preenchidos: "pd.DataFrame") -> list[s
     Retorna lista de logs para exibir no diagnóstico.
     """
     # Monta dict atual {pedido: {status, razao, vendedor, lider}}
+    # A coluna status pode aparecer como "status_dash" ou "status" dependendo do header real
     atual = {}
     for _, row in df_preenchidos.iterrows():
         ped = str(row.get(COL_PEDIDO, "")).strip()
+        # Tenta status_dash primeiro, depois status, depois qualquer coluna com "status"
         st_ = str(row.get(COL_STATUS, "")).strip()
+        if not st_:
+            st_ = str(row.get("status", "")).strip()
+        if not st_:
+            # Busca qualquer coluna cujo nome contenha "status"
+            for col in df_preenchidos.columns:
+                if "status" in str(col).lower():
+                    val = str(row.get(col, "")).strip()
+                    if val and val.lower() not in ("nan", "none", ""):
+                        st_ = val
+                        break
         if ped:
             atual[ped] = {
                 "status":   st_,
@@ -271,6 +283,12 @@ def _detectar_e_notificar_mudancas(gc, df_preenchidos: "pd.DataFrame") -> list[s
     if mudancas:
         logs = _notificar_mudancas_bko(gc, mudancas)
         return logs
+
+    # Diagnóstico: mostra amostra do que foi gravado no snapshot
+    amostra = [(p, i["status"]) for p, i in list(atual.items())[:3]]
+    vazios = sum(1 for i in atual.values() if not i["status"])
+    if vazios == len(atual):
+        return [f"⚠️ Snapshot gravado mas STATUS vazio em todos os {len(atual)} pedidos — verifique o nome da coluna status na planilha"]
     return []
 
 
