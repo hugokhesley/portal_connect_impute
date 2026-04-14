@@ -283,6 +283,13 @@ def _detectar_e_notificar_mudancas(gc, df_preenchidos: "pd.DataFrame") -> list[s
     if mudancas:
         logs = _notificar_mudancas_bko(gc, mudancas)
         return logs
+
+    # DEBUG temporário — remove após confirmar colunas
+    if not mudancas and atual:
+        primeiro = list(atual.values())[0]
+        status_sample = primeiro["status"]
+        cols_disponiveis = list(df_preenchidos.columns[:15])
+        return [f"🔍 DEBUG — Colunas do df: {cols_disponiveis} | status lido: '{status_sample}'"]
     return []
 
 
