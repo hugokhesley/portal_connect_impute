@@ -236,14 +236,18 @@ def _detectar_e_notificar_mudancas(gc, df_preenchidos: "pd.DataFrame", df_radar=
     Retorna lista de logs para exibir no diagnóstico.
     """
     # Monta índice do radar: {pedido_norm: status}
+    # No df_radar, status foi renomeado para "status_dash" pelo _load_radar
     radar_status = {}
     if df_radar is not None and not df_radar.empty and "pedido" in df_radar.columns:
         def _np(v):
             s = str(v).strip()
             if s.endswith(".0"): s = s[:-2]
             return s.lstrip("0") or s
-        col_st = COL_STATUS if COL_STATUS in df_radar.columns else (
-            "status" if "status" in df_radar.columns else None
+        # Procura a coluna status em ordem de prioridade
+        col_st = next(
+            (c for c in ["status_dash", "status", COL_STATUS]
+             if c in df_radar.columns),
+            None
         )
         if col_st:
             for _, r in df_radar.iterrows():
