@@ -224,14 +224,29 @@ def _gravar_vendedor(gc, pedido, vendedor_real, lider, usuario_portal):
         todos = aba.get_all_values()
         if not todos:
             return False, "Planilha vazia."
-        header = [str(h).strip().lower().replace(" ", "_") for h in todos[0]]
+
+        # Usa _parse_sheet para encontrar o header real (pula linhas de título/merge)
+        KEYWORDS = {"pedido", "safra", "vendedor", "razao", "razão", "lider", "líder"}
+        header_idx = 0
+        for i, row in enumerate(todos):
+            row_norm = {_normaliza_col(c) for c in row if str(c).strip()}
+            if row_norm & KEYWORDS:
+                header_idx = i
+                break
+
+        header_raw = todos[header_idx]
+        header = [_normaliza_col(h) for h in header_raw]
+
         idx_p = next((i for i, h in enumerate(header) if h == COL_PEDIDO), None)
         idx_v = next((i for i, h in enumerate(header) if h == COL_VENDEDOR_REAL), None)
         idx_l = next((i for i, h in enumerate(header) if h == COL_LIDER), None)
+
         if None in (idx_p, idx_v, idx_l):
-            return False, f"Colunas não encontradas: {header[:10]}"
+            return False, f"Colunas não encontradas: {header}"
+
+        rows = todos[header_idx + 1:]
         pnorm = str(pedido).strip().lstrip("0")
-        for i, row in enumerate(todos[1:], start=2):
+        for i, row in enumerate(rows, start=header_idx + 2):
             if not row or len(row) <= idx_p:
                 continue
             if str(row[idx_p]).strip().lstrip("0") == pnorm:
