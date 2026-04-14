@@ -7,7 +7,7 @@ import streamlit as st
 import requests
 import pandas as pd
 import unicodedata
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 
 SPREADSHEET_ID    = "1HmtEFf2Akh7NLR2prxDh9S4gmioKYw419B4bkx4yBLg"
 ABA_BKO           = "BKO-VENDEDOR-REAL"
@@ -143,27 +143,33 @@ def _notificar_mudancas_bko(gc, mudancas: list[dict]) -> list[str]:
     usuario_tids = {k: v for k, v in mapa_tid.items() if not k.startswith("__admin__")}
 
     nl = "\n"
+    brasilia = timezone(timedelta(hours=-3))
     for m in mudancas:
-        pedido     = m.get("pedido", "—")
-        razao      = m.get("razao", "—")
-        status_ant = m.get("status_ant", "")
+        pedido      = m.get("pedido", "—")
+        razao       = m.get("razao", "—")
+        status_ant  = m.get("status_ant", "")
         status_novo = m.get("status_novo", "")
-        vendedor   = m.get("vendedor", "")
-        lider      = m.get("lider", "")
+        vendedor    = m.get("vendedor", "")
+        lider       = m.get("lider", "")
+        acessos     = m.get("acessos", "")
+        agora_bsb   = datetime.now(brasilia).strftime("%d/%m/%Y às %H:%M")
 
         if status_ant and status_ant != status_novo:
             linha_status = f"🔄 Status: <s>{status_ant}</s> → <b>{status_novo}</b>{nl}"
         else:
             linha_status = f"🔄 Status: <b>{status_novo}</b>{nl}"
 
+        linha_acessos = f"📶 Acessos: <b>{acessos}</b>{nl}" if acessos and str(acessos) not in ("", "nan", "None") else ""
+
         msg = (
             f"📋 <b>Atualização de Pedido — Portal Impute</b>{nl}{nl}"
             f"🏢 <b>{razao[:60]}</b>{nl}"
             f"📌 Nº Pedido: <b>{pedido}</b>{nl}"
             f"{linha_status}"
+            f"{linha_acessos}"
             f"👤 Vendedor: {vendedor or '—'}{nl}"
             f"🏅 Líder: {lider or '—'}{nl}"
-            f"📅 {datetime.now().strftime('%d/%m/%Y às %H:%M')}"
+            f"📅 {agora_bsb}"
         )
 
         # Destinatários: vendedor + líder
@@ -249,12 +255,21 @@ def _detectar_e_notificar_mudancas(gc, df_preenchidos: "pd.DataFrame", df_radar=
              if c in df_radar.columns),
             None
         )
+        col_ac = "acessos" if "acessos" in df_radar.columns else None
         if col_st:
             for _, r in df_radar.iterrows():
                 p = _np(str(r.get("pedido", "")))
                 s = str(r.get(col_st, "")).strip()
                 if p and s and s.lower() not in ("nan", "none"):
                     radar_status[p] = s
+                # Guarda acessos com chave separada
+                if col_ac and p:
+                    ac = str(r.get(col_ac, "")).strip()
+                    if ac and ac.lower() not in ("nan", "none"):
+                        try:
+                            radar_status[p + "_acessos"] = str(int(float(ac)))
+                        except Exception:
+                            radar_status[p + "_acessos"] = ac
 
     # Monta dict atual {pedido: {status, razao, vendedor, lider}}
     atual = {}
@@ -264,12 +279,15 @@ def _detectar_e_notificar_mudancas(gc, df_preenchidos: "pd.DataFrame", df_radar=
         ped = ped.lstrip("0") or ped
         # Status vem do Radar
         st_ = radar_status.get(ped, "")
+        # Acessos também vem do radar
+        acessos_ = radar_status.get(ped + "_acessos", "")
         if ped:
             atual[ped] = {
                 "status":   st_,
                 "razao":    str(row.get(COL_RAZAO_SOCIAL, "")).strip(),
                 "vendedor": str(row.get(COL_VENDEDOR_REAL, "")).strip(),
                 "lider":    str(row.get(COL_LIDER, "")).strip(),
+                "acessos":  acessos_,
             }
 
     # Carrega snapshot anterior do Sheets
@@ -288,6 +306,7 @@ def _detectar_e_notificar_mudancas(gc, df_preenchidos: "pd.DataFrame", df_radar=
                     "status_novo": st_now,
                     "vendedor":    info["vendedor"],
                     "lider":       info["lider"],
+                    "acessos":     info.get("acessos", ""),
                 })
 
     # Persiste snapshot atual no Sheets
