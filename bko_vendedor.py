@@ -465,20 +465,11 @@ def _render_pendentes(df, vendedores_lista, mapa_lider, user, gc, is_admin):
                 selecoes[f"{idx}"] = (pedido, sel)
 
             with col_lider_info:
-                if sel and sel != "— Selecione o vendedor —":
-                    lider_auto = mapa_lider.get(sel, "—")
-                    st.markdown(
-                        f"<div style='background:#172554;border:1px solid #1e40af;border-radius:8px;"
-                        f"padding:7px 10px;font-size:0.75rem;color:#93c5fd;margin-top:2px'>"
-                        f"👤 <b>{lider_auto}</b></div>",
-                        unsafe_allow_html=True
-                    )
+                lider_auto = mapa_lider.get(sel, "") if sel and sel != "— Selecione o vendedor —" else ""
+                if lider_auto:
+                    st.success(f"👤 {lider_auto}")
                 else:
-                    st.markdown(
-                        "<div style='background:#1e293b;border:1px solid #334155;border-radius:8px;"
-                        "padding:7px 10px;font-size:0.75rem;color:#475569;margin-top:2px'>Líder: —</div>",
-                        unsafe_allow_html=True
-                    )
+                    st.caption("Líder: —")
             st.markdown("")
 
         salvar = st.form_submit_button(
