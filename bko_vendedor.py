@@ -24,7 +24,7 @@ COL_LIDER         = "lider"           # não_preencher → LIDER
 COL_TBP           = "tbp"             # col_4 → TBP
 # Colunas que não existem na BKO-VENDEDOR-REAL (usadas só internamente)
 COL_FILA_ATUAL    = "fila_atual"
-COL_STATUS        = "status_dash"
+COL_STATUS        = "status"  # header "Status" normalizado vira "status"
 COL_ACESSOS       = "acessos"
 COL_PRECO         = "preco_oferta"
 COL_MES_ATIVACAO  = "safra"           # aponta para SAFRA
@@ -283,12 +283,6 @@ def _detectar_e_notificar_mudancas(gc, df_preenchidos: "pd.DataFrame") -> list[s
     if mudancas:
         logs = _notificar_mudancas_bko(gc, mudancas)
         return logs
-
-    # Diagnóstico: mostra amostra do que foi gravado no snapshot
-    amostra = [(p, i["status"]) for p, i in list(atual.items())[:3]]
-    vazios = sum(1 for i in atual.values() if not i["status"])
-    if vazios == len(atual):
-        return [f"⚠️ Snapshot gravado mas STATUS vazio em todos os {len(atual)} pedidos — verifique o nome da coluna status na planilha"]
     return []
 
 
