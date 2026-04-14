@@ -300,7 +300,7 @@ def get_aba(nome: str):
                 "obs_tc",
                 # Status e BKO
                 "status","pedido_tim","bko_responsavel","data_bko_assumiu",
-                "data_atualizacao","atualizado_por","obs_interna"
+                "data_atualizacao","atualizado_por","obs_interna","tipo_pedido"
             ]])
         return planilha.worksheet(nome)
 
@@ -454,7 +454,8 @@ def salvar_pedido(dados: dict, user: dict) -> str:
         portados_json,
         dados.get("obs_tc",""),
         "Aguardando BKO", "", "", "",
-        agora, user["login"], ""
+        agora, user["login"], "",
+        dados.get("tipo_pedido", "IMPUTE TOTAL")
     ])
     st.cache_data.clear()
     return id_p
@@ -736,6 +737,11 @@ def card_pedido(row, user, mostrar_acao=False, contexto=""):
 
     # Monta linhas extras
     extra = ""
+    tipo_p = row.get("tipo_pedido", "")
+    if tipo_p:
+        CORES_TIPO = {"CUSTOMIZAÇÃO": "#8b5cf6", "ACOMPANHAMENTO": "#3b82f6", "IMPUTE TOTAL": "#22c55e"}
+        cor_tipo = CORES_TIPO.get(tipo_p, "#64748b")
+        extra += f'<span style="background:{cor_tipo}22;color:{cor_tipo};border:1px solid {cor_tipo};display:inline-block;padding:1px 8px;border-radius:99px;font-size:0.65rem;font-weight:700;margin-right:6px">{tipo_p}</span>'
     if pedido_tim:
         extra += f"TIM: {pedido_tim} · "
     if bko_resp:
@@ -874,6 +880,131 @@ def render_ficha(row):
       • Contrato Social / CNPJ · RG e CPF do Administrador · Comprovante de Endereço · Documentos dos Sócios
     </div>
     """, unsafe_allow_html=True)
+
+
+# ─────────────────────────────────────────────────────────────────
+#  SELEÇÃO DO TIPO DE PEDIDO
+# ─────────────────────────────────────────────────────────────────
+
+TIPOS_PEDIDO = {
+    "CUSTOMIZAÇÃO": {
+        "icon": "🎯",
+        "titulo": "Solicitar customização de valores",
+        "desc": "Solicite uma proposta personalizada de valores com a TIM via BKO Connect. Todos os dados do cliente serão necessários.",
+        "cor": "#8b5cf6",
+        "form": "completo",
+    },
+    "ACOMPANHAMENTO": {
+        "icon": "📡",
+        "titulo": "Informar pedido já cadastrado",
+        "desc": "Pedido já cadastrado no Easy Vendas ou Radar. Informe os dados básicos para acompanhamento de status pelo BKO.",
+        "cor": "#3b82f6",
+        "form": "simples",
+    },
+    "IMPUTE TOTAL": {
+        "icon": "📋",
+        "titulo": "Solicitar impute ao BKO Connect",
+        "desc": "Envie os dados do cliente e o BKO Connect realiza o cadastro completo do pedido. Todos os dados do cliente serão necessários.",
+        "cor": "#22c55e",
+        "form": "completo",
+    },
+}
+
+
+def form_tipo_pedido(user):
+    """Tela de seleção do tipo de pedido — etapa 0."""
+
+    st.markdown("""
+    <div style="background:linear-gradient(135deg,#0f2027,#2c5364);border-radius:14px;
+                padding:24px 32px;margin-bottom:28px">
+      <div style="font-size:1.2rem;font-weight:800;color:#fff;margin-bottom:6px">
+        📋 Novo Pedido — Connect Group
+      </div>
+      <div style="font-size:0.82rem;color:rgba(255,255,255,0.65)">
+        Selecione o tipo de solicitação para continuar
+      </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    for tipo, cfg in TIPOS_PEDIDO.items():
+        st.markdown(f"""
+        <div style="background:#fff;border:2px solid {cfg['cor']};border-radius:14px;
+                    padding:20px 24px;margin-bottom:14px;cursor:pointer">
+          <div style="display:flex;align-items:center;gap:14px">
+            <div style="font-size:2rem">{cfg['icon']}</div>
+            <div>
+              <div style="font-size:0.95rem;font-weight:700;color:#1e293b">{cfg['titulo']}</div>
+              <div style="font-size:0.78rem;color:#64748b;margin-top:3px">{cfg['desc']}</div>
+            </div>
+          </div>
+        </div>
+        """, unsafe_allow_html=True)
+
+        if st.button(f"{cfg['icon']} Selecionar — {cfg['titulo']}", key=f"tipo_{tipo}",
+                     use_container_width=True):
+            st.session_state.tipo_pedido_sel  = tipo
+            st.session_state.form_etapa       = 1
+            st.session_state.pop("form_cnpj_dados", None)
+            st.rerun()
+
+
+def form_acompanhamento(user):
+    """Formulário simplificado para pedidos já cadastrados no Easy Vendas / Radar."""
+
+    st.markdown("""
+    <div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:10px;
+                padding:14px 18px;margin-bottom:20px;font-size:0.85rem;color:#1e40af">
+      📡 <b>Acompanhamento de Pedido</b> — Informe os dados básicos do pedido já cadastrado.
+    </div>
+    """, unsafe_allow_html=True)
+
+    with st.form("form_acompanhamento"):
+        col1, col2 = st.columns(2)
+        with col1:
+            numero_pedido = st.text_input("Nº do Pedido (Easy Vendas / Radar) *", placeholder="ex: 6341069")
+            razao_social  = st.text_input("Razão Social do Cliente *")
+            cnpj          = st.text_input("CNPJ *", placeholder="00.000.000/0000-00")
+        with col2:
+            produto       = st.selectbox("Produto *", PRODUTOS)
+            qtd_acessos   = st.number_input("Quantidade de Acessos *", min_value=1, value=1)
+            obs_tc        = st.text_area("Observações (opcional)", height=100)
+
+        st.markdown("<br>", unsafe_allow_html=True)
+        submitted = st.form_submit_button("✅ Registrar Pedido para Acompanhamento",
+                                          type="primary", use_container_width=True)
+
+        if submitted:
+            if not all([numero_pedido, razao_social, cnpj]):
+                st.error("⚠️ Preencha todos os campos obrigatórios (*)")
+            else:
+                dados = {
+                    "cnpj":             cnpj,
+                    "razao_social":     razao_social,
+                    "nome_fantasia":    razao_social,
+                    "produto":          produto,
+                    "qtd_acessos_novos": qtd_acessos,
+                    "obs_tc":           f"Pedido Radar/EasyVendas: {numero_pedido}\n{obs_tc}",
+                    "tipo_pedido":      "ACOMPANHAMENTO",
+                    "numero_pedido_externo": numero_pedido,
+                }
+                with st.spinner("Registrando pedido..."):
+                    id_novo = salvar_pedido(dados, user)
+                    enviar_email_bko(id_novo, dados, user)
+
+                st.success(f"""
+                ✅ **Pedido {id_novo} registrado para acompanhamento!**
+
+                Nº do pedido informado: **{numero_pedido}**
+                O BKO foi notificado por e-mail.
+                """)
+                st.session_state.pop("tipo_pedido_sel", None)
+                st.session_state.pop("form_etapa", None)
+                st.rerun()
+
+    if st.button("◀ Voltar", key="btn_voltar_acomp"):
+        st.session_state.pop("tipo_pedido_sel", None)
+        st.session_state.pop("form_etapa", None)
+        st.rerun()
 
 
 # ─────────────────────────────────────────────────────────────────
@@ -1065,6 +1196,7 @@ def form_novo_pedido(user):
             else:
                 # Salva dados da etapa 1 no session_state e avança para etapa 2
                 st.session_state.form_etapa1 = {
+                    "tipo_pedido": st.session_state.get("tipo_pedido_sel", "IMPUTE TOTAL"),
                     "cnpj": cnpj, "inscricao_estadual": inscricao_estadual,
                     "atividade_economica": atividade_economica,
                     "razao_social": razao_social, "nome_fantasia": nome_fantasia,
@@ -1545,9 +1677,14 @@ def main():
         with tab_todos:
             tela_todos_pedidos(df_filtrado, user)
         with tab_novo:
-            etapa = st.session_state.get("form_etapa", 1)
-            if etapa == 2:
+            etapa     = st.session_state.get("form_etapa", 1)
+            tipo_sel  = st.session_state.get("tipo_pedido_sel", "")
+            if not tipo_sel:
+                form_tipo_pedido(user)
+            elif etapa == 2:
                 form_etapa2_linhas(user)
+            elif tipo_sel == "ACOMPANHAMENTO":
+                form_acompanhamento(user)
             else:
                 form_novo_pedido(user)
         with tab_vendedor:
@@ -1572,9 +1709,14 @@ def main():
         with tab_todos:
             tela_todos_pedidos(df_filtrado, user)
         with tab_novo:
-            etapa = st.session_state.get("form_etapa", 1)
-            if etapa == 2:
+            etapa     = st.session_state.get("form_etapa", 1)
+            tipo_sel  = st.session_state.get("tipo_pedido_sel", "")
+            if not tipo_sel:
+                form_tipo_pedido(user)
+            elif etapa == 2:
                 form_etapa2_linhas(user)
+            elif tipo_sel == "ACOMPANHAMENTO":
+                form_acompanhamento(user)
             else:
                 form_novo_pedido(user)
         with tab_vendedor:
@@ -1592,9 +1734,14 @@ def main():
                 for _, row in df_m.iterrows():
                     card_pedido(row, user, mostrar_acao=True, contexto="_meus")
         with tab_novo:
-            etapa = st.session_state.get("form_etapa", 1)
-            if etapa == 2:
+            etapa     = st.session_state.get("form_etapa", 1)
+            tipo_sel  = st.session_state.get("tipo_pedido_sel", "")
+            if not tipo_sel:
+                form_tipo_pedido(user)
+            elif etapa == 2:
                 form_etapa2_linhas(user)
+            elif tipo_sel == "ACOMPANHAMENTO":
+                form_acompanhamento(user)
             else:
                 form_novo_pedido(user)
 
