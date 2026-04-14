@@ -1180,7 +1180,7 @@ def form_novo_pedido(user):
         </div>
         """, unsafe_allow_html=True)
 
-        submitted = st.form_submit_button("✅ Enviar Pedido para Fila de Impute", type="primary", use_container_width=True)
+        submitted = st.form_submit_button("➡️ Avançar para Composição de Linhas", type="primary", use_container_width=True)
 
         if submitted:
             if not all([cnpj, razao_social, adm_nome, adm_cpf, end_cep]):
