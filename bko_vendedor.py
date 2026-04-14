@@ -228,29 +228,38 @@ def _salvar_snap_sheets(gc, atual: dict):
         pass
 
 
-def _detectar_e_notificar_mudancas(gc, df_preenchidos: "pd.DataFrame") -> list[str]:
+def _detectar_e_notificar_mudancas(gc, df_preenchidos: "pd.DataFrame", df_radar=None) -> list[str]:
     """
     Compara df_preenchidos atual com snapshot persistido no Sheets (PortalStatusSnap).
+    O status vem do df_radar (DadosRadar), pois a BKO-VENDEDOR-REAL não tem essa coluna.
     Se detectar mudanças de status, notifica via Telegram e atualiza o snapshot.
     Retorna lista de logs para exibir no diagnóstico.
     """
+    # Monta índice do radar: {pedido_norm: status}
+    radar_status = {}
+    if df_radar is not None and not df_radar.empty and "pedido" in df_radar.columns:
+        def _np(v):
+            s = str(v).strip()
+            if s.endswith(".0"): s = s[:-2]
+            return s.lstrip("0") or s
+        col_st = COL_STATUS if COL_STATUS in df_radar.columns else (
+            "status" if "status" in df_radar.columns else None
+        )
+        if col_st:
+            for _, r in df_radar.iterrows():
+                p = _np(str(r.get("pedido", "")))
+                s = str(r.get(col_st, "")).strip()
+                if p and s and s.lower() not in ("nan", "none"):
+                    radar_status[p] = s
+
     # Monta dict atual {pedido: {status, razao, vendedor, lider}}
-    # A coluna status pode aparecer como "status_dash" ou "status" dependendo do header real
     atual = {}
     for _, row in df_preenchidos.iterrows():
         ped = str(row.get(COL_PEDIDO, "")).strip()
-        # Tenta status_dash primeiro, depois status, depois qualquer coluna com "status"
-        st_ = str(row.get(COL_STATUS, "")).strip()
-        if not st_:
-            st_ = str(row.get("status", "")).strip()
-        if not st_:
-            # Busca qualquer coluna cujo nome contenha "status"
-            for col in df_preenchidos.columns:
-                if "status" in str(col).lower():
-                    val = str(row.get(col, "")).strip()
-                    if val and val.lower() not in ("nan", "none", ""):
-                        st_ = val
-                        break
+        if ped.endswith(".0"): ped = ped[:-2]
+        ped = ped.lstrip("0") or ped
+        # Status vem do Radar
+        st_ = radar_status.get(ped, "")
         if ped:
             atual[ped] = {
                 "status":   st_,
@@ -283,13 +292,6 @@ def _detectar_e_notificar_mudancas(gc, df_preenchidos: "pd.DataFrame") -> list[s
     if mudancas:
         logs = _notificar_mudancas_bko(gc, mudancas)
         return logs
-
-    # DEBUG temporário — remove após confirmar colunas
-    if not mudancas and atual:
-        primeiro = list(atual.values())[0]
-        status_sample = primeiro["status"]
-        cols_disponiveis = list(df_preenchidos.columns[:15])
-        return [f"🔍 DEBUG — Colunas do df: {cols_disponiveis} | status lido: '{status_sample}'"]
     return []
 
 
@@ -655,7 +657,7 @@ def tela_bko_vendedor(user: dict, gc):
         df_radar = _load_radar(gc)
 
         # ── Detecta mudanças de status e notifica ────────────────
-        logs_notif = _detectar_e_notificar_mudancas(gc, df_completos)
+        logs_notif = _detectar_e_notificar_mudancas(gc, df_completos, df_radar)
         if logs_notif:
             with st.expander("📣 Notificações Telegram — Mudanças de Status", expanded=True):
                 for log in logs_notif:
