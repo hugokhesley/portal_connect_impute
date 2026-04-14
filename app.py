@@ -607,9 +607,6 @@ def atualizar_status_pedido(id_pedido: str, novo_status: str, pedido_tim: str, o
             if obs_interna:
                 aba.update_cell(linha, 52, obs_interna)
             st.cache_data.clear()
-            # Notifica via Telegram
-            # Notificação automática sem status_anterior (fallback interno)
-            notificar_mudanca_status(id_pedido, novo_status, razao_social, cadastrado_por, bko_login)
             return True
     return False
 
@@ -1591,20 +1588,21 @@ def tela_todos_pedidos(df, user):
                 with col_s3:
                     obs_int = st.text_input("Obs. interna", value=row.get("obs_interna",""), key=f"oi_{id_pedido}")
                 if st.button("💾 Salvar", key=f"sv_{id_pedido}", type="primary"):
+                    status_antes = str(row.get("status",""))
                     if atualizar_status_pedido(
                         id_pedido, novo_status, pedido_tim, obs_int, user["login"],
                         razao_social=str(row.get("razao_social","")),
                         cadastrado_por=str(row.get("cadastrado_por",""))
                     ):
-                        # Guarda resultado no session_state para mostrar após rerun
+                        # Notifica e guarda diagnóstico no session_state
                         res_tg = notificar_mudanca_status(
                             id_pedido, novo_status,
                             str(row.get("razao_social","")),
                             str(row.get("cadastrado_por","")),
                             user["login"],
-                            status_anterior=str(row.get("status",""))
+                            status_anterior=status_antes
                         )
-                        st.session_state["tg_notif_resultado"] = res_tg
+                        st.session_state["tg_notif_resultado"] = res_tg if res_tg else ["⚠️ Nenhum resultado retornado"]
                         st.session_state["tg_notif_pedido"]    = id_pedido
                         st.rerun()
 
