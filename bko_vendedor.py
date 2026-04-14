@@ -469,22 +469,26 @@ def _render_pendentes(df, vendedores_lista, mapa_lider, user, gc, is_admin):
             st.markdown(_card(razao, pedido, fila, status, acessos, preco_fmt, ativ_badge, cor),
                         unsafe_allow_html=True)
 
-            col_sel, col_lider_info = st.columns([3, 1])
-            with col_sel:
-                sel = st.selectbox(
-                    f"Vendedor — {pedido}",
-                    ["— Selecione o vendedor —"] + vendedores_lista,
-                    key=f"sv_{idx}_{pedido}",
-                    label_visibility="collapsed",
-                )
-                selecoes[f"{idx}"] = (pedido, sel)
+            # Selectbox dentro do form — líder calculado via format_func no label
+            # Monta lista com líder embutido no nome para mostrar sem precisar de reatividade
+            opcoes_com_lider = ["— Selecione o vendedor —"] + [
+                f"{v}  👤 {mapa_lider.get(v, '?')}" for v in vendedores_lista
+            ]
+            opcoes_valor = ["— Selecione o vendedor —"] + vendedores_lista
 
-            with col_lider_info:
-                lider_auto = mapa_lider.get(sel, "") if sel and sel != "— Selecione o vendedor —" else ""
-                if lider_auto:
-                    st.success(f"👤 {lider_auto}")
-                else:
-                    st.caption("Líder: —")
+            sel_label = st.selectbox(
+                f"Vendedor — {pedido}",
+                opcoes_com_lider,
+                key=f"sv_{idx}_{pedido}",
+                label_visibility="collapsed",
+            )
+            # Extrai o vendedor real (sem o sufixo do líder)
+            if sel_label and sel_label != "— Selecione o vendedor —":
+                sel = sel_label.split("  👤")[0].strip()
+            else:
+                sel = "— Selecione o vendedor —"
+
+            selecoes[f"{idx}"] = (pedido, sel)
             st.markdown("")
 
         salvar = st.form_submit_button(
