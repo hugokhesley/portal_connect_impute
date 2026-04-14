@@ -4,6 +4,7 @@ Portal Connect Impute — Connect Group
 """
 
 import streamlit as st
+import requests
 import pandas as pd
 import unicodedata
 from datetime import datetime
@@ -54,6 +55,223 @@ div[data-testid="stForm"] div[data-baseweb="select"] svg {
 }
 </style>
 """
+
+
+# ─── NOTIFICAÇÃO TELEGRAM — MUDANÇA DE STATUS BKO ──────────────────────────
+
+def _buscar_telegram_ids(gc, nomes: list[str]) -> dict[str, str]:
+    """
+    Retorna {nome: telegram_id} buscando na PortalUsuarios do portal.
+    Compara pelo campo 'vinculo' (que contém o nome do vendedor/líder
+    como aparece na BKO-VENDEDOR-REAL, ex: GUTHYERRE, VITÓRIA).
+    Também coleta todos os admins com telegram_id.
+    """
+    try:
+        sh = gc.open_by_key(SPREADSHEET_ID)
+        try:
+            aba = sh.worksheet("PortalUsuarios")
+        except Exception:
+            return {}
+        rows = aba.get_all_records()
+        resultado = {}
+        nomes_norm = {str(n).strip().lower(): str(n).strip() for n in nomes if n}
+        for row in rows:
+            vinculo = str(row.get("vinculo", "")).strip()
+            login   = str(row.get("login",   "")).strip().lower()
+            nome_u  = str(row.get("nome",    "")).strip()
+            tid     = str(row.get("telegram_id", "")).strip()
+            perfil  = str(row.get("perfil",  "")).strip().lower()
+            # admins: sempre coleta
+            if perfil == "admin" and tid:
+                resultado[f"__admin__{login}"] = tid
+            if not tid:
+                continue
+            # tenta match por vínculo (principal) ou nome completo
+            for chave_norm, chave_orig in nomes_norm.items():
+                if vinculo.strip().lower() == chave_norm:
+                    resultado[chave_orig] = tid
+                    break
+                if nome_u.strip().lower() == chave_norm:
+                    resultado[chave_orig] = tid
+                    break
+        return resultado
+    except Exception:
+        return {}
+
+
+def _enviar_tg(token: str, chat_id: str, msg: str) -> bool:
+    """Envia mensagem Telegram. Retorna True se sucesso."""
+    try:
+        r = requests.post(
+            f"https://api.telegram.org/bot{token}/sendMessage",
+            json={"chat_id": chat_id, "text": msg, "parse_mode": "HTML"},
+            timeout=10
+        )
+        return r.status_code == 200
+    except Exception:
+        return False
+
+
+def _notificar_mudancas_bko(gc, mudancas: list[dict]) -> list[str]:
+    """
+    Notifica via Telegram cada mudança de status detectada nos preenchidos.
+    mudancas = [{"pedido": str, "razao": str, "status_ant": str, "status_novo": str,
+                 "vendedor": str, "lider": str}, ...]
+    Retorna lista de logs.
+    """
+    if not mudancas:
+        return []
+
+    token = st.secrets.get("telegram_impute", {}).get("token", "")
+    if not token:
+        return ["❌ Token Telegram não configurado (telegram_impute.token)"]
+
+    logs = []
+
+    # Coleta todos os logins únicos envolvidos + admins (via perfil)
+    logins_envolvidos = set()
+    for m in mudancas:
+        if m.get("vendedor"):
+            logins_envolvidos.add(m["vendedor"])
+        if m.get("lider"):
+            logins_envolvidos.add(m["lider"])
+
+    mapa_tid = _buscar_telegram_ids(gc, list(logins_envolvidos))
+
+    # Separa admins (chave começa com __admin__)
+    admin_tids = {k: v for k, v in mapa_tid.items() if k.startswith("__admin__")}
+    usuario_tids = {k: v for k, v in mapa_tid.items() if not k.startswith("__admin__")}
+
+    nl = "\n"
+    for m in mudancas:
+        pedido     = m.get("pedido", "—")
+        razao      = m.get("razao", "—")
+        status_ant = m.get("status_ant", "")
+        status_novo = m.get("status_novo", "")
+        vendedor   = m.get("vendedor", "")
+        lider      = m.get("lider", "")
+
+        if status_ant and status_ant != status_novo:
+            linha_status = f"🔄 Status: <s>{status_ant}</s> → <b>{status_novo}</b>{nl}"
+        else:
+            linha_status = f"🔄 Status: <b>{status_novo}</b>{nl}"
+
+        msg = (
+            f"📋 <b>Atualização de Pedido — Portal Impute</b>{nl}{nl}"
+            f"🏢 <b>{razao[:60]}</b>{nl}"
+            f"📌 Nº Pedido: <b>{pedido}</b>{nl}"
+            f"{linha_status}"
+            f"👤 Vendedor: {vendedor or '—'}{nl}"
+            f"🏅 Líder: {lider or '—'}{nl}"
+            f"📅 {datetime.now().strftime('%d/%m/%Y às %H:%M')}"
+        )
+
+        # Destinatários: vendedor + líder
+        destinatarios_notif = set()
+        for login in [vendedor, lider]:
+            if login and login in usuario_tids:
+                destinatarios_notif.add(usuario_tids[login])
+            elif login and login not in usuario_tids:
+                logs.append(f"⚠️ {login} — sem telegram_id cadastrado")
+
+        # Admins
+        for tid in admin_tids.values():
+            destinatarios_notif.add(tid)
+
+        if not destinatarios_notif:
+            logs.append(f"⚠️ Pedido {pedido} — nenhum destinatário encontrado")
+            continue
+
+        for tid in destinatarios_notif:
+            ok = _enviar_tg(token, tid, msg)
+            logs.append(f"{'✅' if ok else '❌'} Pedido {pedido} → chat {tid}")
+
+    return logs
+
+
+ABA_SNAP = "PortalStatusSnap"
+
+
+def _carregar_snap_sheets(gc) -> dict:
+    """Lê snapshot persistente da aba PortalStatusSnap. Retorna {pedido: status}."""
+    try:
+        sh = gc.open_by_key(SPREADSHEET_ID)
+        try:
+            aba = sh.worksheet(ABA_SNAP)
+        except Exception:
+            # Cria a aba se não existir
+            aba = sh.add_worksheet(title=ABA_SNAP, rows=2000, cols=3)
+            aba.append_row(["pedido", "status", "atualizado_em"])
+            return {}
+        rows = aba.get_all_records()
+        return {str(r.get("pedido", "")).strip(): str(r.get("status", "")).strip()
+                for r in rows if str(r.get("pedido", "")).strip()}
+    except Exception:
+        return {}
+
+
+def _salvar_snap_sheets(gc, atual: dict):
+    """Persiste snapshot completo na aba PortalStatusSnap."""
+    try:
+        sh  = gc.open_by_key(SPREADSHEET_ID)
+        try:
+            aba = sh.worksheet(ABA_SNAP)
+        except Exception:
+            aba = sh.add_worksheet(title=ABA_SNAP, rows=2000, cols=3)
+        agora = datetime.now().strftime("%d/%m/%Y %H:%M")
+        linhas = [["pedido", "status", "atualizado_em"]]
+        for pedido, info in atual.items():
+            linhas.append([pedido, info["status"], agora])
+        aba.clear()
+        aba.update(linhas, "A1")
+    except Exception:
+        pass
+
+
+def _detectar_e_notificar_mudancas(gc, df_preenchidos: "pd.DataFrame") -> list[str]:
+    """
+    Compara df_preenchidos atual com snapshot persistido no Sheets (PortalStatusSnap).
+    Se detectar mudanças de status, notifica via Telegram e atualiza o snapshot.
+    Retorna lista de logs para exibir no diagnóstico.
+    """
+    # Monta dict atual {pedido: {status, razao, vendedor, lider}}
+    atual = {}
+    for _, row in df_preenchidos.iterrows():
+        ped = str(row.get(COL_PEDIDO, "")).strip()
+        st_ = str(row.get(COL_STATUS, "")).strip()
+        if ped:
+            atual[ped] = {
+                "status":   st_,
+                "razao":    str(row.get(COL_RAZAO_SOCIAL, "")).strip(),
+                "vendedor": str(row.get(COL_VENDEDOR_REAL, "")).strip(),
+                "lider":    str(row.get(COL_LIDER, "")).strip(),
+            }
+
+    # Carrega snapshot anterior do Sheets
+    anterior = _carregar_snap_sheets(gc)
+
+    mudancas = []
+    if anterior:  # só compara se já havia snapshot gravado
+        for pedido, info in atual.items():
+            st_ant = anterior.get(pedido, "")
+            st_now = info["status"]
+            if st_ant and st_now and st_ant != st_now:
+                mudancas.append({
+                    "pedido":      pedido,
+                    "razao":       info["razao"],
+                    "status_ant":  st_ant,
+                    "status_novo": st_now,
+                    "vendedor":    info["vendedor"],
+                    "lider":       info["lider"],
+                })
+
+    # Persiste snapshot atual no Sheets
+    _salvar_snap_sheets(gc, atual)
+
+    if mudancas:
+        logs = _notificar_mudancas_bko(gc, mudancas)
+        return logs
+    return []
 
 
 def _norm(s):
@@ -314,11 +532,6 @@ def tela_bko_vendedor(user: dict, gc):
 
 
 
-    # Debug temporário — remove após confirmar colunas
-    with st.expander("🔍 Debug colunas BKO (temporário)", expanded=False):
-        st.write("Colunas BKO:", list(df_bko.columns))
-        st.write("Primeiras linhas:", df_bko.head(3).to_dict())
-
     # Mapa vendedor → lider
     mapa_lider = {}
     if not df_colab.empty:
@@ -421,6 +634,14 @@ def tela_bko_vendedor(user: dict, gc):
         _render_pendentes(df_pendentes, vendedores_lista, mapa_lider, user, gc, is_admin)
     with tab_todos:
         df_radar = _load_radar(gc)
+
+        # ── Detecta mudanças de status e notifica ────────────────
+        logs_notif = _detectar_e_notificar_mudancas(gc, df_completos)
+        if logs_notif:
+            with st.expander("📣 Notificações Telegram — Mudanças de Status", expanded=True):
+                for log in logs_notif:
+                    st.markdown(f"- {log}")
+
         _render_preenchidos(df_completos, vendedores_lista, mapa_lider, user, gc, is_admin, df_radar=df_radar)
 
 
