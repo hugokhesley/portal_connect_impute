@@ -1050,14 +1050,6 @@ def form_novo_pedido(user):
         with col3:
             atividade_economica = st.text_input("Atividade Econômica *", value=c.get("atividade_economica",""))
 
-        # ── Produto ─────────────────────────────────────────────
-        st.markdown('<div class="section-header">📦 PRODUTO</div>', unsafe_allow_html=True)
-        col_p1, col_p2 = st.columns(2)
-        with col_p1:
-            produto = st.selectbox("Produto *", PRODUTOS, key="form_produto")
-        with col_p2:
-            qtd_acessos_novos = st.number_input("Quantidade de Acessos Novos *", min_value=0, value=1, key="form_acessos")
-
         # ── Administrador do Contrato ────────────────────────────
         st.markdown('<div class="section-header">👤 ADMINISTRADOR DO CONTRATO</div>', unsafe_allow_html=True)
         col_a1, col_a2, col_a3 = st.columns(3)
@@ -1214,7 +1206,7 @@ def form_novo_pedido(user):
                     "ent_ponto_ref": ent_ponto_ref, "ent_sabado": ent_sabado,
                     "ent_hora_ini": ent_hora_ini, "ent_hora_fim": ent_hora_fim,
                     "fat_tipo": fat_tipo, "fat_dia_vencimento": fat_dia, "fat_email": fat_email,
-                    "produto": produto, "qtd_acessos_novos": qtd_acessos_novos,
+                    "produto": "", "qtd_acessos_novos": 0,
                     "obs_tc": obs_tc,
                 }
                 st.session_state.form_etapa = 2
