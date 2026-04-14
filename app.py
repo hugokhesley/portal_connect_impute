@@ -391,6 +391,7 @@ def load_pedidos():
 
 
 def salvar_usuario(login, senha, nome, perfil, vinculo, email, telegram_id=""):
+    _garantir_coluna_telegram()
     aba = get_aba(ABA_USUARIOS)
     aba.append_row([
         login, hashlib.sha256(senha.encode()).hexdigest(),
@@ -401,8 +402,22 @@ def salvar_usuario(login, senha, nome, perfil, vinculo, email, telegram_id=""):
     st.cache_data.clear()
 
 
+def _garantir_coluna_telegram():
+    """Adiciona coluna telegram_id na aba PortalUsuarios se não existir."""
+    try:
+        aba = get_aba(ABA_USUARIOS)
+        header = aba.row_values(1)
+        if "telegram_id" not in [str(h).strip().lower() for h in header]:
+            # Adiciona coluna no final
+            col_idx = len(header) + 1
+            aba.update_cell(1, col_idx, "telegram_id")
+    except Exception:
+        pass
+
+
 def editar_usuario(login_alvo: str, dados: dict):
     """Atualiza campos de um usuário existente na planilha."""
+    _garantir_coluna_telegram()
     aba = get_aba(ABA_USUARIOS)
     todos = aba.get_all_values()
     if not todos:
