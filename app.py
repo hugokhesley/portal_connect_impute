@@ -164,25 +164,98 @@ st.markdown("""
   html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
   .stApp { background-color: #f1f5f9; color: #1e293b; }
 
-  /* Força inputs com fundo branco e texto escuro */
+  /* ── Inputs, textareas, number inputs ── */
   input[type="text"], input[type="password"], input[type="number"],
   textarea, .stTextInput input, .stTextArea textarea,
-  .stNumberInput input, .stSelectbox select,
-  div[data-baseweb="input"] input,
+  .stNumberInput input, div[data-baseweb="input"] input,
   div[data-baseweb="textarea"] textarea {
     background-color: #ffffff !important;
     color: #1e293b !important;
     border: 1px solid #cbd5e1 !important;
   }
 
-  /* Labels dos inputs */
+  /* ── Labels de todos os inputs ── */
   .stTextInput label, .stTextArea label, .stNumberInput label,
-  .stSelectbox label, .stDateInput label {
+  .stSelectbox label, .stDateInput label, .stRadio label,
+  .stCheckbox label, .stMultiSelect label, label {
     color: #374151 !important;
     font-weight: 500 !important;
   }
 
-  /* Selectbox */
+  /* ── Selectbox ── */
+  div[data-baseweb="select"] > div,
+  div[data-baseweb="select"] div[class*="ValueContainer"],
+  div[data-baseweb="select"] div[class*="singleValue"],
+  div[data-baseweb="select"] input {
+    background-color: #ffffff !important;
+    color: #1e293b !important;
+  }
+  div[data-baseweb="select"] svg { fill: #64748b !important; }
+
+  /* ── Radio buttons ── */
+  .stRadio > div { background: transparent !important; }
+  .stRadio div[role="radiogroup"] label {
+    background: #fff !important;
+    border: 1px solid #cbd5e1 !important;
+    border-radius: 8px !important;
+    padding: 6px 14px !important;
+    color: #1e293b !important;
+    font-size: 0.82rem !important;
+  }
+  .stRadio div[role="radiogroup"] label:has(input:checked) {
+    background: #1e3a5f !important;
+    border-color: #3b82f6 !important;
+    color: #fff !important;
+  }
+
+  /* ── Checkboxes ── */
+  .stCheckbox span { color: #1e293b !important; }
+
+  /* ── Botões primários ── */
+  .stButton > button[kind="primary"],
+  button[kind="primary"] {
+    background: linear-gradient(135deg, #1e3a5f, #2563eb) !important;
+    color: #ffffff !important;
+    border: none !important;
+    border-radius: 8px !important;
+    font-weight: 600 !important;
+  }
+  .stButton > button[kind="primary"]:hover {
+    background: linear-gradient(135deg, #1e40af, #3b82f6) !important;
+  }
+
+  /* ── Botões secundários ── */
+  .stButton > button:not([kind="primary"]) {
+    background: #fff !important;
+    color: #374151 !important;
+    border: 1px solid #cbd5e1 !important;
+    border-radius: 8px !important;
+    font-weight: 500 !important;
+  }
+  .stButton > button:not([kind="primary"]):hover {
+    background: #f1f5f9 !important;
+    border-color: #94a3b8 !important;
+  }
+
+  /* ── Expanders ── */
+  details { background: #fff !important; border: 1px solid #e2e8f0 !important; border-radius: 10px !important; }
+  details summary { color: #1e293b !important; font-weight: 600 !important; }
+
+  /* ── Number input buttons (+/-) ── */
+  .stNumberInput button {
+    background: #e2e8f0 !important;
+    color: #1e293b !important;
+    border: 1px solid #cbd5e1 !important;
+  }
+  .stNumberInput button:hover { background: #cbd5e1 !important; }
+
+  /* ── Multiselect ── */
+  div[data-baseweb="tag"] {
+    background: #1e3a5f !important;
+    color: #fff !important;
+  }
+
+  /* ── Selectbox */
   div[data-baseweb="select"] div {
     background-color: #ffffff !important;
     color: #1e293b !important;
