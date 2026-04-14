@@ -25,6 +25,66 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from google.oauth2.service_account import Credentials
 from bko_vendedor import tela_bko_vendedor
+import threading
+
+# ─────────────────────────────────────────────────────────────────
+#  BOT TELEGRAM — imputeconnect_bot (roda em background)
+# ─────────────────────────────────────────────────────────────────
+
+def _iniciar_bot():
+    """Inicia o bot Telegram em thread separada, apenas uma vez por processo."""
+    try:
+        import asyncio
+        from telegram import Update
+        from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
+
+        token = st.secrets.get("telegram_impute", {}).get("token", "")
+        if not token:
+            return  # sem token, não sobe o bot
+
+        async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+            chat_id = update.effective_chat.id
+            nome    = update.effective_user.first_name or "usuário"
+            await update.message.reply_text(
+                f"👋 Olá, <b>{nome}</b>!\n\n"
+                f"Bem-vindo ao <b>Portal Impute — Connect Group</b>.\n\n"
+                f"🆔 Seu <b>Telegram ID</b> é:\n"
+                f"<code>{chat_id}</code>\n\n"
+                f"📋 <i>Informe esse número ao administrador para receber "
+                f"notificações de status dos seus pedidos.</i>",
+                parse_mode="HTML"
+            )
+
+        async def run():
+            app = ApplicationBuilder().token(token).build()
+            app.add_handler(CommandHandler("start", start))
+            app.add_handler(CommandHandler("id",    start))
+            await app.initialize()
+            await app.start()
+            await app.updater.start_polling(allowed_updates=Update.ALL_TYPES)
+            # Roda indefinidamente
+            await asyncio.Event().wait()
+
+        def thread_func():
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                loop.run_until_complete(run())
+            except Exception:
+                pass
+
+        t = threading.Thread(target=thread_func, daemon=True, name="telegram_bot")
+        t.start()
+
+    except Exception:
+        pass  # se python-telegram-bot não estiver instalado, ignora
+
+
+# Inicia o bot apenas uma vez por processo Streamlit
+if "telegram_bot_started" not in st.session_state:
+    _iniciar_bot()
+    st.session_state["telegram_bot_started"] = True
+
 
 st.set_page_config(
     page_title="Connect Group | Portal de Impute",
