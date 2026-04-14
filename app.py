@@ -207,7 +207,7 @@ def get_aba(nome: str):
     except gspread.WorksheetNotFound:
         if nome == ABA_USUARIOS:
             aba = planilha.add_worksheet(title=nome, rows=200, cols=10)
-            aba.update([["login","senha_hash","nome","perfil","vinculo","email","ativo","criado_em"]])
+            aba.update([["login","senha_hash","nome","perfil","vinculo","email","ativo","criado_em","telegram_id"]])
             # Cria admin padrão
             aba.append_row([
                 "admin",
@@ -257,14 +257,85 @@ def load_pedidos():
     return pd.DataFrame(dados) if dados else pd.DataFrame()
 
 
-def salvar_usuario(login, senha, nome, perfil, vinculo, email):
+def salvar_usuario(login, senha, nome, perfil, vinculo, email, telegram_id=""):
     aba = get_aba(ABA_USUARIOS)
     aba.append_row([
         login, hashlib.sha256(senha.encode()).hexdigest(),
         nome, perfil, vinculo, email, "sim",
-        datetime.now().strftime("%d/%m/%Y %H:%M")
+        datetime.now().strftime("%d/%m/%Y %H:%M"),
+        str(telegram_id).strip()
     ])
     st.cache_data.clear()
+
+
+def editar_usuario(login_alvo: str, dados: dict):
+    """Atualiza campos de um usuário existente na planilha."""
+    aba = get_aba(ABA_USUARIOS)
+    todos = aba.get_all_values()
+    if not todos:
+        return False
+    header = [str(h).strip().lower() for h in todos[0]]
+    for i, row in enumerate(todos[1:], start=2):
+        if not row:
+            continue
+        if str(row[0]).strip() == login_alvo:
+            for campo, valor in dados.items():
+                if campo in header:
+                    aba.update_cell(i, header.index(campo) + 1, valor)
+            st.cache_data.clear()
+            return True
+    return False
+
+
+def _enviar_telegram_impute(chat_id: str, mensagem: str) -> bool:
+    """Envia mensagem via imputeconnect_bot."""
+    import requests as _req
+    try:
+        token = st.secrets.get("telegram_impute", {}).get("token", "")
+        if not token:
+            return False
+        url = f"https://api.telegram.org/bot{token}/sendMessage"
+        resp = _req.post(url, json={
+            "chat_id": chat_id,
+            "text": mensagem,
+            "parse_mode": "HTML"
+        }, timeout=10)
+        return resp.status_code == 200
+    except Exception:
+        return False
+
+
+def notificar_mudanca_status(id_pedido: str, novo_status: str, razao_social: str,
+                              cadastrado_por: str, bko_login: str):
+    """Notifica via Telegram quando status de pedido muda."""
+    try:
+        df_usu = load_usuarios()
+        if df_usu.empty or "telegram_id" not in df_usu.columns:
+            return
+
+        msg = (
+            f"📋 <b>Status Atualizado — Portal Impute</b>\n\n"
+            f"🏢 <b>{razao_social}</b>\n"
+            f"📌 Pedido: <b>{id_pedido}</b>\n"
+            f"🔄 Novo status: <b>{novo_status}</b>\n"
+            f"👤 Atualizado por: {bko_login}\n"
+            f"📅 {datetime.now().strftime('%d/%m/%Y às %H:%M')}"
+        )
+
+        # Notifica: quem cadastrou + quem atualizou + todos os admins
+        logins_notif = {cadastrado_por, bko_login}
+        admins = df_usu[df_usu["perfil"] == "admin"]["login"].tolist()
+        logins_notif.update(admins)
+
+        for login in logins_notif:
+            row = df_usu[df_usu["login"] == login]
+            if row.empty:
+                continue
+            tid = str(row.iloc[0].get("telegram_id", "")).strip()
+            if tid and tid not in ("", "nan"):
+                _enviar_telegram_impute(tid, msg)
+    except Exception:
+        pass
 
 
 def gerar_id():
@@ -346,7 +417,8 @@ def bko_assumir(id_pedido: str, bko_login: str):
     return False
 
 
-def atualizar_status_pedido(id_pedido: str, novo_status: str, pedido_tim: str, obs_interna: str, bko_login: str):
+def atualizar_status_pedido(id_pedido: str, novo_status: str, pedido_tim: str, obs_interna: str, bko_login: str,
+                            razao_social: str = "", cadastrado_por: str = ""):
     aba = get_aba(ABA_PEDIDOS)
     todos = aba.get_all_values()
     agora = datetime.now().strftime("%d/%m/%Y %H:%M")
@@ -360,6 +432,8 @@ def atualizar_status_pedido(id_pedido: str, novo_status: str, pedido_tim: str, o
             if obs_interna:
                 aba.update_cell(linha, 52, obs_interna)
             st.cache_data.clear()
+            # Notifica via Telegram
+            notificar_mudanca_status(id_pedido, novo_status, razao_social, cadastrado_por, bko_login)
             return True
     return False
 
@@ -1218,7 +1292,11 @@ def tela_todos_pedidos(df, user):
                 with col_s3:
                     obs_int = st.text_input("Obs. interna", value=row.get("obs_interna",""), key=f"oi_{id_pedido}")
                 if st.button("💾 Salvar", key=f"sv_{id_pedido}", type="primary"):
-                    if atualizar_status_pedido(id_pedido, novo_status, pedido_tim, obs_int, user["login"]):
+                    if atualizar_status_pedido(
+                        id_pedido, novo_status, pedido_tim, obs_int, user["login"],
+                        razao_social=str(row.get("razao_social","")),
+                        cadastrado_por=str(row.get("cadastrado_por",""))
+                    ):
                         st.success("✅ Atualizado!")
                         st.rerun()
 
@@ -1229,12 +1307,65 @@ def tela_todos_pedidos(df, user):
 
 def tela_usuarios(user):
     """Gerenciamento de usuários (admin only)."""
-    st.markdown('<div class="section-header">👥 USUÁRIOS CADASTRADOS</div>', unsafe_allow_html=True)
-    df_usu = load_usuarios()
-    if not df_usu.empty:
-        cols_show = [c for c in ["login","nome","perfil","vinculo","email","ativo","criado_em"] if c in df_usu.columns]
-        st.dataframe(df_usu[cols_show], use_container_width=True, hide_index=True)
 
+    df_usu = load_usuarios()
+
+    # ── Lista de usuários com edição ──────────────────────────────
+    st.markdown('<div class="section-header">👥 USUÁRIOS CADASTRADOS</div>', unsafe_allow_html=True)
+
+    if df_usu.empty:
+        st.info("Nenhum usuário cadastrado.")
+    else:
+        cols_show = [c for c in ["login","nome","perfil","vinculo","email","telegram_id","ativo","criado_em"] if c in df_usu.columns]
+        st.dataframe(df_usu[cols_show], use_container_width=True, hide_index=True,
+            column_config={"telegram_id": "Telegram ID"})
+
+        st.markdown("")
+        st.markdown("**✏️ Editar usuário existente:**")
+
+        logins = df_usu["login"].tolist()
+        login_edit = st.selectbox("Selecione o login para editar", ["— Selecione —"] + logins, key="edit_login_sel")
+
+        if login_edit and login_edit != "— Selecione —":
+            row_edit = df_usu[df_usu["login"] == login_edit].iloc[0]
+            with st.expander(f"✏️ Editando: {login_edit}", expanded=True):
+                ec1, ec2 = st.columns(2)
+                with ec1:
+                    e_nome    = st.text_input("Nome completo", value=str(row_edit.get("nome","")), key="e_nome")
+                    e_vinculo = st.text_input("Vínculo", value=str(row_edit.get("vinculo","")), key="e_vinculo")
+                    e_perfil  = st.selectbox("Perfil",
+                        list(PERFIS.keys()),
+                        index=list(PERFIS.keys()).index(row_edit.get("perfil","vendedor")) if row_edit.get("perfil") in PERFIS else 0,
+                        format_func=lambda x: f"{PERFIS[x]['icon']} {PERFIS[x]['label']}",
+                        key="e_perfil")
+                    e_ativo   = st.selectbox("Ativo", ["sim","nao"],
+                        index=0 if str(row_edit.get("ativo","sim")) == "sim" else 1,
+                        key="e_ativo")
+                with ec2:
+                    e_email   = st.text_input("Email", value=str(row_edit.get("email","")), key="e_email")
+                    e_tg      = st.text_input("Telegram ID (chat_id do usuário)", value=str(row_edit.get("telegram_id","")), key="e_tg",
+                        help="ID numérico do Telegram. O usuário pode obter enviando /start para @imputeconnect_bot")
+                    e_senha   = st.text_input("Nova senha (deixe em branco para não alterar)", type="password", key="e_senha")
+                    e_senha2  = st.text_input("Confirmar nova senha", type="password", key="e_senha2")
+
+                if st.button("💾 Salvar Alterações", type="primary", use_container_width=True, key="btn_salvar_edit"):
+                    dados_upd = {
+                        "nome": e_nome, "vinculo": e_vinculo, "perfil": e_perfil,
+                        "email": e_email, "ativo": e_ativo, "telegram_id": e_tg
+                    }
+                    if e_senha:
+                        if e_senha != e_senha2:
+                            st.error("Senhas não coincidem.")
+                            st.stop()
+                        dados_upd["senha_hash"] = hashlib.sha256(e_senha.encode()).hexdigest()
+                    if editar_usuario(login_edit, dados_upd):
+                        st.success(f"✅ Usuário **{login_edit}** atualizado!")
+                        st.rerun()
+                    else:
+                        st.error("Erro ao atualizar usuário.")
+
+    # ── Novo usuário ──────────────────────────────────────────────
+    st.markdown("")
     st.markdown('<div class="section-header">➕ NOVO USUÁRIO</div>', unsafe_allow_html=True)
     col1, col2 = st.columns(2)
     with col1:
@@ -1244,6 +1375,8 @@ def tela_usuarios(user):
     with col2:
         u_vinculo = st.text_input("Vínculo (empresa/equipe)", key="u_vinculo")
         u_email   = st.text_input("Email", key="u_email")
+        u_tg      = st.text_input("Telegram ID", key="u_tg",
+            help="ID numérico do Telegram. O usuário obtém enviando /start para @imputeconnect_bot")
         u_senha   = st.text_input("Senha", type="password", key="u_senha")
         u_senha2  = st.text_input("Confirmar senha", type="password", key="u_senha2")
 
@@ -1257,7 +1390,7 @@ def tela_usuarios(user):
             if not df_exist.empty and u_login in df_exist["login"].values:
                 st.error(f"Login '{u_login}' já existe.")
             else:
-                salvar_usuario(u_login, u_senha, u_nome, u_perfil, u_vinculo, u_email)
+                salvar_usuario(u_login, u_senha, u_nome, u_perfil, u_vinculo, u_email, telegram_id=u_tg)
                 st.success(f"✅ Usuário **{u_nome}** criado com perfil **{PERFIS[u_perfil]['label']}**!")
                 st.rerun()
 
