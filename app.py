@@ -1630,7 +1630,49 @@ def tela_usuarios(user):
         u_login  = st.text_input("Login (sem espaços)", key="u_login")
         u_perfil = st.selectbox("Perfil", list(PERFIS.keys()), format_func=lambda x: f"{PERFIS[x]['icon']} {PERFIS[x]['label']}", key="u_perfil")
     with col2:
-        u_vinculo = st.text_input("Vínculo (empresa/equipe)", key="u_vinculo")
+        # Se perfil for lider, mostra lista de líderes da aba Colaboradores
+        if u_perfil == "lider":
+            try:
+                df_colab_usu = load_usuarios()  # já temos a planilha aberta
+                gc_tmp = get_gc()
+                aba_col = gc_tmp.open_by_key(SPREADSHEET_ID).worksheet("Colaboradores")
+                vals_col = aba_col.get_all_values()
+                # Encontra coluna LÍDER
+                if vals_col and len(vals_col) > 1:
+                    header_col = [str(h).strip().upper() for h in vals_col[0]]
+                    # Procura header real
+                    for i, row in enumerate(vals_col):
+                        if any("LIDER" in str(c).upper().replace("Í","I").replace("Ì","I") for c in row):
+                            header_col = [str(h).strip().upper() for h in row]
+                            lidx = next((j for j, h in enumerate(header_col) if "LIDER" in h.replace("Í","I")), None)
+                            lideres_col = sorted({
+                                str(vals_col[k][lidx]).strip()
+                                for k in range(i+1, len(vals_col))
+                                if lidx is not None and lidx < len(vals_col[k]) and str(vals_col[k][lidx]).strip()
+                            })
+                            break
+                    else:
+                        lideres_col = []
+                else:
+                    lideres_col = []
+            except Exception:
+                lideres_col = []
+
+            if lideres_col:
+                u_vinculo = st.selectbox(
+                    "Líder (vínculo) *",
+                    lideres_col,
+                    key="u_vinculo",
+                    help="Deve ser igual ao nome na coluna LÍDER da planilha Colaboradores"
+                )
+                st.caption(f"✅ Opções disponíveis na planilha Colaboradores")
+            else:
+                u_vinculo = st.text_input("Vínculo (líder/equipe)", key="u_vinculo",
+                    help="Deve ser igual ao nome na coluna LÍDER da planilha Colaboradores")
+                st.caption("⚠️ Não foi possível carregar líderes — digite manualmente")
+        else:
+            u_vinculo = st.text_input("Vínculo (empresa/equipe)", key="u_vinculo")
+
         u_email   = st.text_input("Email", key="u_email")
         u_tg      = st.text_input("Telegram ID", key="u_tg",
             help="ID numérico do Telegram. O usuário obtém enviando /start para @imputeconnect_bot")
